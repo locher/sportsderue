@@ -36,10 +36,9 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}/
         run: npm run build
 
+      # Prérequis : Pages activé dans Réglages → Pages avec la source
+      # « GitHub Actions » (le jeton du workflow ne peut pas le faire lui-même).
       - uses: actions/configure-pages@v5
-        with:
-          # Active Pages (source « GitHub Actions ») si ce n'est pas déjà fait.
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:

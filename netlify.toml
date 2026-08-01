@@ -1,0 +1,28 @@
+# Déploiement Netlify : « Add new site » → « Import an existing project » →
+# choisir ce dépôt. Tout est déjà renseigné ici, rien à saisir.
+# Le site est servi à la racine du domaine, donc pas de BASE_PATH.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Application à page unique : toute URL inconnue retombe sur l'accueil.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Le service worker ne doit jamais être servi depuis un cache périmé,
+# sinon les mises à jour de l'application ne parviennent pas aux visiteurs.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
