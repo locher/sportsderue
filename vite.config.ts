@@ -3,7 +3,12 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Déploiement possible à la racine d'un domaine (Netlify, Vercel) ou dans un
+// sous-chemin (GitHub Pages : /Sportsderue/). Le workflow renseigne BASE_PATH.
+const base = process.env.BASE_PATH ?? '/'
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     tailwindcss(),
@@ -17,8 +22,6 @@ export default defineConfig({
           'Trouvez les équipements sportifs en accès libre et gratuit autour de vous : city-stades, terrains de basket, tables de ping-pong, skateparks…',
         lang: 'fr',
         dir: 'ltr',
-        start_url: '/',
-        scope: '/',
         display: 'standalone',
         orientation: 'portrait',
         background_color: '#f6f7f5',
@@ -37,7 +40,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        navigateFallback: 'index.html',
+        navigateFallback: `${base}index.html`,
         cleanupOutdatedCaches: true,
         // Map tiles are big; keep the SW precache reasonable and cache them at runtime.
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
