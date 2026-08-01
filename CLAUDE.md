@@ -244,6 +244,23 @@ catégorie : résultat identique, URL deux fois plus courte.
    portant l'emoji) puis `map.addImage()`. Une image manquante ne lève pas d'erreur, elle
    n'affiche rien. Les regroupements, eux, sont des couches `circle` : pas de dégradé
    possible, la profondeur vient d'une lueur lime posée sous le disque d'encre.
+7. **Géolocalisation sur iOS.** Signalé depuis un iPhone : aucune demande d'autorisation
+   n'apparaît jamais et l'application annonce un refus, alors que tout va bien sur
+   ordinateur. `status` ne passe à `'denied'` que sur `PERMISSION_DENIED` (code 1) : le
+   navigateur a donc répondu **sans rien demander**, et le blocage est au-dessus de la page.
+   Deux familles de causes, à ne pas confondre :
+   - **Réglages du système** (le plus fréquent, et le code n'y peut rien) : *Confidentialité
+     et sécurité → Service de localisation* coupé ou *Safari* sur « Jamais », ou
+     *Apps → Safari → Localisation* sur « Refuser ». Le message de refus nomme donc ces
+     écrans sur iOS, il ne dit pas « les réglages de votre navigateur ».
+   - **Absence de geste utilisateur** : la demande du démarrage part d'un `useEffect`
+     (`App.tsx`), sans activation derrière elle — c'est le cas fragile sur WebKit, bien plus
+     permissif sur ordinateur. D'où le bouton **« Réessayer »** dans le bandeau : une tape
+     fournit l'activation qui manquait. Ne pas le retirer, c'est la seule porte de sortie
+     depuis un téléphone.
+
+   Le `timeout` compte aussi le temps passé sur la feuille d'autorisation : à 10 s un
+   TIMEOUT tombait pendant que la personne lisait. Il est à 20 s, ne pas le redescendre.
 
 ## Vérifier son travail dans cet environnement
 
