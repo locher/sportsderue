@@ -147,6 +147,7 @@ src/
 │   ├── geocode.ts             recherche et géocodage inverse Géoplateforme
 │   ├── geo.ts                 distances, emprises, liens d'itinéraire
 │   ├── cache.ts               cache mémoire des résultats par emprise + filtres
+│   ├── appUpdate.ts           détection et application des nouvelles versions
 │   ├── text.ts                comparaison de libellés « au sens près »
 │   └── urlState.ts            état partageable dans l'URL, filtres mémorisés
 ├── hooks/
@@ -179,6 +180,13 @@ Détails d'implémentation utiles à connaître :
 - **Worker MapLibre.** MapLibre déduit l'URL de son worker de la sienne, ce qu'un bundler
   casse : `setWorkerUrl()` reçoit le worker construit par Vite (`?worker&url`), et
   `optimizeDeps.exclude` évite le pré-bundling en développement.
+- **Mise à jour automatique.** Les noms de fichiers portent une empreinte du contenu, donc
+  tout se joue sur `index.html` et `sw.js`, qui gardent le même nom : `netlify.toml` les
+  fait revalider à chaque requête, et `src/lib/appUpdate.ts` redemande `sw.js` à chaque
+  retour au premier plan (au plus une fois par minute) puis recharge la page dès que le
+  nouveau service worker prend la main. Le rechargement ne perd rien, l'état de la vue
+  étant dans l'URL. Sans cela, une application installée sur un téléphone ne fait aucune
+  navigation pendant des jours et ne voit jamais la nouvelle version.
 
 ## Limites connues et pistes
 

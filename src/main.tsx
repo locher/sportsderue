@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { registerSW } from 'virtual:pwa-register'
 import App from './App'
+import { setupAutoUpdate } from './lib/appUpdate'
 import './index.css'
 
 const container = document.getElementById('root')
@@ -13,6 +13,7 @@ createRoot(container).render(
   </StrictMode>,
 )
 
-// Mise à jour silencieuse du service worker : l'application reste utilisable hors-ligne
-// avec la dernière version consultée, puis se met à jour au prochain lancement.
-registerSW({ immediate: true })
+// Mise à jour silencieuse : l'application reste utilisable hors-ligne avec la dernière
+// version consultée, cherche une nouvelle version à chaque retour au premier plan, et se
+// recharge d'elle-même quand elle en trouve une.
+setupAutoUpdate()

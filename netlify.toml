@@ -15,14 +15,32 @@
   to = "/index.html"
   status = 200
 
+# Fichiers dont le nom porte une empreinte du contenu : un changement produit un nouveau
+# nom, jamais une nouvelle version du même fichier. Ils peuvent être gardés pour toujours.
 [[headers]]
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
-# Le service worker ne doit jamais être servi depuis un cache périmé,
-# sinon les mises à jour de l'application ne parviennent pas aux visiteurs.
+[[headers]]
+  for = "/workbox-*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Ces trois-là gardent le même nom d'une version à l'autre : ce sont eux qui annoncent
+# qu'il y a du neuf. Servis depuis un cache périmé, la mise à jour ne part jamais.
+# `sw.js` en premier : c'est le seul fichier que l'application réinterroge d'elle-même.
 [[headers]]
   for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/manifest.webmanifest"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"

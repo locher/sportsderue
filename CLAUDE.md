@@ -50,6 +50,38 @@ soit installable comme une application, et que ça reste gratuit à héberger.
   d'administrateur qu'un jeton de workflow n'a pas) et Pages sur un dépôt privé exige un
   compte GitHub Pro. Supprimé en août 2026 ; ne pas le remettre sans demande explicite.
 
+## La mise à jour doit rester automatique
+
+Signalée depuis un téléphone : il fallait vider le cache du navigateur à la main pour voir
+une nouvelle version. Le service worker n'était pas en cause — Workbox pose déjà
+`skipWaiting()` et `clientsClaim()`, la relève se fait dès qu'une version est *détectée*.
+Deux trous, à ne pas rouvrir :
+
+1. **Rien ne redéclenchait la détection.** `registerSW({ immediate: true })` interroge
+   `sw.js` au chargement de la page et plus jamais. Une application installée est rouverte
+   depuis l'arrière-plan pendant des jours **sans une seule navigation** : la nouvelle
+   version n'était donc jamais vue. D'où la vérification à chaque retour au premier plan
+   (`visibilitychange`, au plus une fois par minute) et l'intervalle horaire de secours.
+2. **La page ouverte gardait l'ancienne version en mémoire.** Prendre le contrôle ne
+   réexécute pas le JavaScript déjà chargé ni ne réapplique la feuille de style. En mode
+   application il n'y a pas de bouton « recharger » : sans écoute de `controllerchange`
+   suivie d'un `location.reload()`, on ne s'en sortait plus. Le rechargement ne perd rien,
+   l'état de la vue vivant dans l'URL — c'est ce qui autorise à le faire sans rien demander.
+
+Deux garde-fous dans `src/lib/appUpdate.ts`, à conserver : ne pas recharger si aucun
+service worker ne pilotait la page (première visite : la prise de contrôle n'apporte rien à
+montrer, ce serait un clignotement gratuit), et un drapeau contre un second rechargement.
+
+Côté serveur, `netlify.toml` : les fichiers à empreinte (`/assets/*`, `/workbox-*.js`) sont
+immuables, et les trois qui gardent leur nom d'une version à l'autre — `sw.js`,
+`index.html`, `manifest.webmanifest` — sont **toujours revalidés**. Un `max-age` sur l'un
+d'eux et la mise à jour ne part plus.
+
+Vérifiable de bout en bout sans raccourcir les constantes livrées : servir un `dist`
+depuis un répertoire, ouvrir la page, reconstruire par-dessus avec un `<title>` différent,
+attendre 65 s, émettre un `visibilitychange` caché puis visible, et vérifier que le titre
+a changé tout seul. Compter les rechargements : il doit y en avoir exactement **un**.
+
 ## La charte visuelle
 
 Refondue en août 2026. La version précédente — vert institutionnel, rayons courts, boutons
