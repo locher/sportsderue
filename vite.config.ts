@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // Déploiement possible à la racine d'un domaine (Netlify, Vercel) ou dans un
-// sous-chemin (GitHub Pages : /Sportsderue/). Le workflow renseigne BASE_PATH.
+// sous-chemin, en renseignant BASE_PATH au build (ex. BASE_PATH=/Sportsderue/).
 const base = process.env.BASE_PATH ?? '/'
 
 export default defineConfig({

@@ -102,10 +102,6 @@ sans quoi la géolocalisation et le service worker sont désactivés par les nav
 
 - **Netlify / Vercel** — importer le dépôt, rien à configurer (`netlify.toml` fixe la
   commande, le dossier publié et les en-têtes de cache). Le site est servi à la racine.
-- **GitHub Pages** — le workflow `.github/workflows/deploy-pages.yml` publie à chaque push.
-  Il faut d'abord activer Pages dans *Réglages → Pages* avec la source « GitHub Actions » ;
-  le jeton du workflow n'a pas le droit de le faire lui-même. Sur un dépôt privé, Pages
-  demande un compte GitHub Pro.
 - **Autre hébergeur, dans un sous-chemin** — passer `BASE_PATH=/mon-chemin/` au build :
   les URL d'assets, le `start_url`/`scope` du manifeste et le repli du service worker
   suivent automatiquement.

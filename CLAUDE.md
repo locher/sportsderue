@@ -43,11 +43,12 @@ soit installable comme une application, et que ça reste gratuit à héberger.
   page « Login Redirect » vers `app.netlify.com/edge-access`) : inutile d'essayer de vérifier
   le déploiement en `curl`, ça ne dira jamais rien d'autre. La seule vérification possible
   de mon côté est locale, sur le serveur Vite (voir « Vérifier son travail »).
-- `.github/workflows/deploy-pages.yml` existe mais **ne déploie pas** : le build passe, puis
-  `configure-pages` échoue (`Resource not accessible by integration` — créer le site Pages
-  est un droit d'administrateur qu'un jeton de workflow n'a pas), et Pages sur un dépôt
-  privé exige un compte GitHub Pro. Ne pas s'acharner dessus : c'est connu et accepté. Il
-  fonctionnera tel quel si Pages est activé à la main ou si le dépôt passe en public.
+- **Netlify est le seul circuit de déploiement**, et le dépôt n'a plus aucun workflow GitHub
+  Actions. Un déploiement automatique sur GitHub Pages a existé
+  (`.github/workflows/deploy-pages.yml`) : il ne publiait jamais — `configure-pages` échouait
+  (`Resource not accessible by integration`, créer le site Pages est un droit
+  d'administrateur qu'un jeton de workflow n'a pas) et Pages sur un dépôt privé exige un
+  compte GitHub Pro. Supprimé en août 2026 ; ne pas le remettre sans demande explicite.
 
 ## La charte visuelle
 
@@ -384,6 +385,6 @@ Rien n'est engagé, mais les questions ont déjà été instruites :
 - Manques fonctionnels : horaires d'ouverture (absents du RES), photos, signalement d'une
   erreur de fiche, itinéraire piéton calculé (aujourd'hui c'est un lien vers l'application
   de cartographie du téléphone, et la distance est à vol d'oiseau).
-- Vérification de build lisible côté GitHub : sortir l'étape `npm run build` du workflow
-  Pages pour qu'elle passe au vert et serve de témoin sur chaque commit. Proposé, non
-  retenu pour l'instant.
+- Vérification de build lisible côté GitHub : un workflow qui ne fait que `npm run build`,
+  pour avoir un témoin vert sur chaque commit sans rien déployer. Proposé, non retenu pour
+  l'instant (le dépôt n'a aujourd'hui aucun workflow).
