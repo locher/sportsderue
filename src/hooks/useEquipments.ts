@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Bbox, Equipment, Filters, LngLat } from '../types'
 import { DataEsError, countEquipmentsInBbox, fetchEquipmentsInBbox } from '../lib/dataes'
-import { filtersKey, lookup, store } from '../lib/cache'
+import { OverpassError, fetchPlaygroundsInBbox } from '../lib/overpass'
+import { filtersKey, lookup, playgroundsKey, store } from '../lib/cache'
 import { bboxKey, distanceMeters, padBbox } from '../lib/geo'
+import { categoriesBySource } from '../lib/sports'
 
 /** En dessous de ce zoom, l'emprise couvre trop de territoire pour être chargée. */
 export const MIN_ZOOM_FOR_DATA = 10.5
@@ -20,7 +22,13 @@ interface Options {
 export interface EquipmentsState {
   items: Equipment[]
   loading: boolean
+  /** Panne de la base principale : la liste est vide, on propose de réessayer. */
   error: string | null
+  /**
+   * Panne de la source secondaire (OpenStreetMap). Les équipements sportifs restent
+   * affichés : c'est un avertissement, pas une erreur bloquante.
+   */
+  warning: string | null
   truncated: boolean
   /** Nombre réel d'équipements dans la zone, connu seulement si la liste est tronquée. */
   total: number | null
@@ -29,22 +37,41 @@ export interface EquipmentsState {
   reload: () => void
 }
 
+/**
+ * Charge ce qu'il faut afficher pour la vue courante.
+ *
+ * Les deux bases sont interrogées par des effets **séparés** : Overpass met 2 à 15 s
+ * là où Data ES répond en une seconde, et tombe régulièrement en panne. Les fusionner
+ * dans un seul `Promise.all` ferait attendre les terrains de basket derrière les aires
+ * de jeux, et un échec d'OpenStreetMap viderait toute la carte.
+ */
 export function useEquipments({ bbox, zoom, filters, origin }: Options): EquipmentsState {
   const [items, setItems] = useState<Equipment[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [truncated, setTruncated] = useState(false)
   const [total, setTotal] = useState<number | null>(null)
+
+  const [playgrounds, setPlaygrounds] = useState<Equipment[]>([])
+  const [playgroundsLoading, setPlaygroundsLoading] = useState(false)
+  const [playgroundsTruncated, setPlaygroundsTruncated] = useState(false)
+  const [warning, setWarning] = useState<string | null>(null)
+
   const [nonce, setNonce] = useState(0)
 
   const zoomedOut = zoom < MIN_ZOOM_FOR_DATA
-  // Toutes les catégories décochées : la réponse est vide par construction, on épargne
-  // un appel à l'API (et son quota).
-  const empty = filters.categories.length === 0
+  const sources = categoriesBySource(filters.categories)
+  // Aucune catégorie du RES cochée : la réponse est vide par construction, on épargne
+  // un appel à l'API (et son quota). Idem côté aires de jeux.
+  const empty = sources.res.length === 0
+  const withoutPlaygrounds = sources.osm.length === 0
+
   const key = filtersKey(filters)
+  const osmKey = playgroundsKey(filters)
   const query = bbox && !zoomedOut ? bboxKey(padBbox(bbox)) : null
 
   const abortRef = useRef<AbortController | null>(null)
+  const osmAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     if (!bbox || zoomedOut || empty) {
@@ -109,19 +136,79 @@ export function useEquipments({ bbox, zoom, filters, origin }: Options): Equipme
     // requête pour un déplacement de quelques mètres.
   }, [query, key, zoomedOut, empty, nonce])
 
+  // Aires de jeux (OpenStreetMap), même cycle mais sur son propre fil.
+  useEffect(() => {
+    if (!bbox || zoomedOut || withoutPlaygrounds) {
+      osmAbortRef.current?.abort()
+      setPlaygroundsLoading(false)
+      setPlaygrounds([])
+      setPlaygroundsTruncated(false)
+      setWarning(null)
+      return
+    }
+
+    const padded = padBbox(bbox)
+    const cached = lookup(padded, osmKey)
+    if (cached) {
+      setPlaygrounds(cached.items)
+      setPlaygroundsTruncated(cached.truncated)
+      setWarning(null)
+      setPlaygroundsLoading(false)
+      return
+    }
+
+    setPlaygroundsLoading(true)
+    const controller = new AbortController()
+    osmAbortRef.current?.abort()
+    osmAbortRef.current = controller
+
+    const timer = window.setTimeout(() => {
+      fetchPlaygroundsInBbox(padded, filters, controller.signal)
+        .then((result) => {
+          store(padded, osmKey, result)
+          setPlaygrounds(result.items)
+          setPlaygroundsTruncated(result.truncated)
+          setWarning(null)
+        })
+        .catch((cause: unknown) => {
+          if (cause instanceof DOMException && cause.name === 'AbortError') return
+          // On garde la liste des sports : seules les aires de jeux manquent, et on le dit.
+          setPlaygrounds([])
+          setPlaygroundsTruncated(false)
+          setWarning(
+            cause instanceof OverpassError
+              ? cause.message
+              : 'Les aires de jeux d’OpenStreetMap n’ont pas pu être chargées.',
+          )
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setPlaygroundsLoading(false)
+        })
+    }, DEBOUNCE_MS)
+
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [query, osmKey, zoomedOut, withoutPlaygrounds, nonce])
+
   const sorted = useMemo(() => {
-    if (!origin) return items
-    return items
+    const merged = playgrounds.length ? [...items, ...playgrounds] : items
+    if (!origin) return merged
+    return merged
       .map((item) => ({ ...item, distance: distanceMeters(origin, item) }))
       .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0))
-  }, [items, origin])
+  }, [items, playgrounds, origin])
 
   return {
     items: sorted,
-    loading,
+    loading: loading || playgroundsLoading,
     error,
-    truncated,
-    total,
+    warning,
+    truncated: truncated || playgroundsTruncated,
+    // Le total ne compte que le RES : l'annoncer pendant que les aires de jeux sont
+    // elles aussi plafonnées donnerait un chiffre faux.
+    total: playgroundsTruncated ? null : total,
     zoomedOut,
     reload: () => setNonce((n) => n + 1),
   }

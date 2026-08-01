@@ -102,7 +102,9 @@ function unique(values: string[]): string[] {
  * courte, ce qui compte avec 17 catégories cochées.
  */
 function categoriesPredicate(ids: CategoryId[]): string {
-  const categories = ids.map((id) => CATEGORY_BY_ID[id]).filter(Boolean)
+  // Les catégories servies par une autre base (les aires de jeux, venues d'OSM) n'ont
+  // rien à faire dans une clause ODSQL : elles sont écartées avant tout le reste.
+  const categories = ids.map((id) => CATEGORY_BY_ID[id]).filter((c) => c?.source === 'res')
   const sportsOf = (group: CategoryGroup) =>
     unique(categories.filter((c) => c.group === group).flatMap((c) => c.sports))
 
@@ -183,6 +185,7 @@ function toEquipment(props: Props, lon: number, lat: number): Equipment {
   const type = str(props.equip_type_name) ?? 'Équipement sportif'
   return {
     id: String(props.equip_numero ?? `${lon},${lat}`),
+    source: 'res',
     name: str(props.equip_nom) ?? str(props.inst_nom) ?? type,
     installation: str(props.inst_nom),
     type,

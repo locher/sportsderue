@@ -22,6 +22,7 @@ import {
   writeState,
 } from './lib/urlState'
 import { fetchEquipmentDetail } from './lib/dataes'
+import { fetchPlaygroundDetail, isPlaygroundId } from './lib/overpass'
 
 const NATURE_IDS = CATEGORIES.filter((c) => c.group === 'nature').map((c) => c.id)
 
@@ -135,13 +136,19 @@ export default function App() {
     const id = boot.current.selectedId
     if (!id) return
     const controller = new AbortController()
-    void fetchEquipmentDetail(id, controller.signal).then((detail) => {
-      if (!detail) return
-      setLinkedEquipment(detail)
-      if (!boot.current.position) {
-        map.current?.flyTo({ lon: detail.lon, lat: detail.lat, zoom: 16 })
-      }
-    })
+    // Le préfixe de l'identifiant dit à quelle base s'adresser.
+    const load = isPlaygroundId(id)
+      ? fetchPlaygroundDetail(id, controller.signal)
+      : fetchEquipmentDetail(id, controller.signal)
+    void load
+      .then((detail) => {
+        if (!detail) return
+        setLinkedEquipment(detail)
+        if (!boot.current.position) {
+          map.current?.flyTo({ lon: detail.lon, lat: detail.lat, zoom: 16 })
+        }
+      })
+      .catch(() => undefined)
     return () => controller.abort()
   }, [])
 
@@ -308,6 +315,7 @@ export default function App() {
         items={equipments.items}
         loading={equipments.loading}
         error={equipments.error}
+        warning={equipments.warning}
         truncated={equipments.truncated}
         total={equipments.total}
         zoomedOut={equipments.zoomedOut}

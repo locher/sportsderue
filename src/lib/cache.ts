@@ -28,6 +28,15 @@ export function filtersKey(filters: Filters): string {
   ].join('|')
 }
 
+/**
+ * Signature de la requête Overpass. La liste des catégories n'y entre pas — la requête
+ * est toujours la même (`leisure=playground`) — et « plein air » non plus, puisque les
+ * aires en salle sont déjà écartées. Le préfixe isole ces entrées de celles du RES.
+ */
+export function playgroundsKey(filters: Filters): string {
+  return ['osm:jeux', filters.litOnly ? 'l' : '', filters.accessibleOnly ? 'a' : ''].join('|')
+}
+
 function inBbox(item: Equipment, bbox: Bbox): boolean {
   return (
     item.lon >= bbox.minLon &&

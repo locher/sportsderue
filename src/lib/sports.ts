@@ -44,11 +44,22 @@ export type CategoryId =
   | 'athletisme'
   | 'pelote'
   | 'velo'
+  | 'jeux'
   | 'rando'
   | 'escalade'
   | 'eau'
 
 export type CategoryGroup = 'urbain' | 'nature'
+
+/**
+ * Base d'où proviennent les points d'une catégorie.
+ *
+ * `res` — le Recensement des équipements sportifs (Data ES), qui porte tout le reste
+ * de l'application. `osm` — OpenStreetMap via Overpass : les aires de jeux pour
+ * enfants n'existent dans **aucun** référentiel national (le RES ne recense que du
+ * sport, et data.gouv.fr n'a que des jeux de données communaux épars).
+ */
+export type DataSource = 'res' | 'osm'
 
 export interface SportCategory {
   id: CategoryId
@@ -63,6 +74,8 @@ export interface SportCategory {
   /** Variante sombre : contraste ≥ 4,5:1 avec du texte blanc. */
   deep: string
   group: CategoryGroup
+  /** Base interrogée pour cette catégorie. */
+  source: DataSource
   /** Valeurs exactes de `equip_type_name` : ce que l'équipement est. */
   types: string[]
   /**
@@ -84,6 +97,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#0A9974',
     deep: '#0F7B5F',
     group: 'urbain',
+    source: 'res',
     types: ['Multisports/City-stades', 'Terrain mixte'],
     sports: ['Multisports/sport pour tous'],
     defaultOn: true,
@@ -97,6 +111,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#F3792B',
     deep: '#BD5411',
     group: 'urbain',
+    source: 'res',
     types: [
       'Terrain de basket-ball',
       'Terrain de basket-ball 3x3',
@@ -114,6 +129,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#1E9646',
     deep: '#1F7A3D',
     group: 'urbain',
+    source: 'res',
     types: [
       'Terrain de football',
       'Terrain de foot 5x5',
@@ -132,6 +148,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#EF1269',
     deep: '#C2185B',
     group: 'urbain',
+    source: 'res',
     // Les tables extérieures n'ont pas de `equip_type_name` dédié (elles sont classées en
     // « Autres équipements divers » ou rattachées à un city-stade) : cette catégorie
     // repose entièrement sur l'activité praticable.
@@ -148,6 +165,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#AAC108',
     deep: '#6B7809',
     group: 'urbain',
+    source: 'res',
     types: ['Court de tennis', 'Mur de tennis', 'Piste de padel'],
     sports: ['Tennis', 'Padel', 'Pickleball'],
     defaultOn: true,
@@ -161,6 +179,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#7B37E7',
     deep: '#6D28D9',
     group: 'urbain',
+    source: 'res',
     types: [
       'Skatepark',
       'Piste de bicross',
@@ -196,6 +215,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#1F79FF',
     deep: '#0B62E8',
     group: 'urbain',
+    source: 'res',
     types: ['Aire de fitness/street workout', 'Parcours sportif/santé', "Parcours d'initiation"],
     sports: ['Activités de forme et de santé', 'Musculation'],
     defaultOn: true,
@@ -210,6 +230,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#C79433',
     deep: '#8A6520',
     group: 'urbain',
+    source: 'res',
     types: [
       'Terrain de pétanque',
       'Terrain de boules',
@@ -233,6 +254,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#F3BA22',
     deep: '#926D0C',
     group: 'urbain',
+    source: 'res',
     types: ['Terrain de volley-ball', 'Terrain de beach-volley'],
     sports: ['Volley-ball / Volley-ball de plage (beach-volley) / Green-Volley'],
     defaultOn: true,
@@ -246,6 +268,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#078EB3',
     deep: '#0E7490',
     group: 'urbain',
+    source: 'res',
     types: ['Terrain de handball'],
     sports: ['Handball / Mini hand / Handball de plage'],
     defaultOn: true,
@@ -259,6 +282,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#AC313E',
     deep: '#8C2F39',
     group: 'urbain',
+    source: 'res',
     types: ['Terrain de rugby'],
     sports: ['Rugby à 15 / Rugby à 7', 'Rugby à 13 / Rugby à 7'],
     defaultOn: true,
@@ -272,6 +296,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#E06000',
     deep: '#B4530A',
     group: 'urbain',
+    source: 'res',
     types: [
       "Piste d'athlétisme isolée",
       "Piste d'athlétisme 2 à 4 couloirs",
@@ -299,6 +324,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#CD3453',
     deep: '#A8324A',
     group: 'urbain',
+    source: 'res',
     types: [
       'Fronton place libre',
       'Mur ou fronton mixte',
@@ -328,6 +354,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#00B1DB',
     deep: '#037F9D',
     group: 'urbain',
+    source: 'res',
     types: ['Anneau / piste de cyclisme', 'Terrain de cyclocross', 'Piste de descente'],
     sports: [
       'Cyclotourisme',
@@ -338,6 +365,28 @@ export const CATEGORIES: SportCategory[] = [
     defaultOn: true,
   },
   {
+    id: 'jeux',
+    label: 'Jeux pour enfants',
+    short: 'Jeux',
+    emoji: '🛝',
+    // Fuchsia : la seule plage de teintes encore libre entre le violet du skate et le
+    // rose du ping-pong. Ce n'est pas un sport, ça ne doit pas se confondre avec un.
+    color: '#a21caf',
+    vivid: '#C42AD3',
+    deep: '#8F1A9A',
+    group: 'urbain',
+    // Seule catégorie qui ne vient pas du RES : les aires de jeux ne sont recensées
+    // nulle part au niveau national, c'est OpenStreetMap qui les porte (~45 900 en
+    // France). `types` et `sports` restent vides — aucune clause n'est envoyée à Data ES.
+    source: 'osm',
+    types: [],
+    sports: [],
+    // Décochée par défaut : chaque vue coûte un appel à Overpass, un service bénévole
+    // bien plus fragile qu'Opendatasoft. Les familles la cochent en une tape, les
+    // autres visiteurs ne le paient pas.
+    defaultOn: false,
+  },
+  {
     id: 'rando',
     label: 'Randonnée / Course d’orientation',
     short: 'Rando',
@@ -346,6 +395,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#5C9A0A',
     deep: '#4D7C0F',
     group: 'nature',
+    source: 'res',
     types: ['Boucle de randonnée', 'Parcours fixe de course d’orientation', 'Relais rando-vélo'],
     sports: [
       'Randonnée pédestre',
@@ -366,6 +416,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#953C0A',
     deep: '#78350F',
     group: 'nature',
+    source: 'res',
     types: [
       "Site d'escalade en falaise",
       "Site de blocs d'escalade",
@@ -384,6 +435,7 @@ export const CATEGORIES: SportCategory[] = [
     vivid: '#007DC2',
     deep: '#0369A1',
     group: 'nature',
+    source: 'res',
     types: [
       'Baignade aménagée',
       "Site d'activités aquatiques et nautiques",
@@ -420,6 +472,19 @@ export const ALL_CATEGORY_IDS: CategoryId[] = CATEGORIES.map((c) => c.id)
 export const DEFAULT_CATEGORY_IDS: CategoryId[] = CATEGORIES.filter((c) => c.defaultOn).map(
   (c) => c.id,
 )
+
+/**
+ * Répartit les catégories cochées par base à interroger. Les deux sources sont
+ * appelées séparément : une base lente ou en panne ne doit pas retenir l'autre.
+ */
+export function categoriesBySource(ids: readonly CategoryId[]): Record<DataSource, CategoryId[]> {
+  const split: Record<DataSource, CategoryId[]> = { res: [], osm: [] }
+  for (const id of ids) {
+    const category = CATEGORY_BY_ID[id]
+    if (category) split[category.source].push(id)
+  }
+  return split
+}
 
 /** `equip_type_name` → catégorie, pour choisir l'icône d'un point. */
 const TYPE_TO_CATEGORY = new Map<string, CategoryId>()

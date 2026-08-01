@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Equipment } from '../types'
 import { categoryStyle, practicableMatches, readableOn, type CategoryId } from '../lib/sports'
 import { formatDistance } from '../lib/geo'
+import { sameLabel } from '../lib/text'
 import { useViewportHeight } from '../hooks/useViewportHeight'
 import { AccessibleIcon, BulbIcon, ChevronIcon } from './Icons'
 
@@ -12,6 +13,8 @@ interface Props {
   items: Equipment[]
   loading: boolean
   error: string | null
+  /** Panne d'une source secondaire : signalée sans masquer les résultats obtenus. */
+  warning: string | null
   truncated: boolean
   total: number | null
   zoomedOut: boolean
@@ -31,6 +34,7 @@ export function ResultsPanel({
   items,
   loading,
   error,
+  warning,
   truncated,
   total,
   zoomedOut,
@@ -189,6 +193,12 @@ export function ResultsPanel({
           </div>
         )}
 
+        {!error && warning && (
+          <p className="animate-rise mb-2 rounded-[26px] bg-canvas px-4 py-3 text-xs leading-relaxed text-muted">
+            {warning}
+          </p>
+        )}
+
         {!error && zoomedOut && (
           <EmptyState
             emoji="🔍"
@@ -293,6 +303,11 @@ function EquipmentRow({
 }) {
   const category = categoryStyle(item.category)
   const place = [item.city, item.postcode].filter(Boolean).join(' · ')
+  // Une aire de jeux sans nom porte son type comme titre : le redire juste en dessous
+  // ferait deux fois la même ligne. On garde alors la commune seule, s'il y en a une.
+  const subtitle = [sameLabel(item.type, item.name) ? '' : item.type, place]
+    .filter(Boolean)
+    .join(' · ')
 
   // Un city-stade remonté par le filtre « Basket » n'est pas un terrain de basket : on
   // dit pourquoi il est là. Inutile si sa propre catégorie est cochée — sa présence va
@@ -320,12 +335,13 @@ function EquipmentRow({
 
       <span className="min-w-0 flex-1">
         <span className="block truncate font-bold">{item.name}</span>
-        <span
-          className={`block truncate text-[13px] ${selected ? 'text-ink/70' : 'text-muted'}`}
-        >
-          {item.type}
-          {place ? ` · ${place}` : ''}
-        </span>
+        {subtitle && (
+          <span
+            className={`block truncate text-[13px] ${selected ? 'text-ink/70' : 'text-muted'}`}
+          >
+            {subtitle}
+          </span>
+        )}
         {practicable.length > 0 && (
           <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {practicable.map((match) => (

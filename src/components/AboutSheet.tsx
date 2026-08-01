@@ -12,7 +12,8 @@ export function AboutSheet({ open, onClose }: Props) {
         <p>
           <strong>Sports de rue</strong> cartographie les équipements sportifs mis à disposition
           gratuitement par les collectivités : city-stades, terrains de basket, tables de
-          ping-pong, skateparks, aires de fitness, terrains de pétanque…
+          ping-pong, skateparks, aires de fitness, terrains de pétanque… et les aires de jeux
+          pour enfants.
         </p>
 
         <section>
@@ -39,6 +40,21 @@ export function AboutSheet({ open, onClose }: Props) {
             </a>
             .
           </p>
+          <p className="mt-2">
+            Les <strong>aires de jeux pour enfants</strong> font exception : elles ne sont
+            recensées dans aucun fichier national — le recensement du ministère ne couvre que le
+            sport. Elles viennent d’
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noreferrer"
+              className="font-bold text-ink underline decoration-lime decoration-2 underline-offset-2"
+            >
+              OpenStreetMap
+            </a>
+            , qui en cartographie près de 46 000 en France. C’est pourquoi la catégorie
+            « Jeux » se coche à la demande : chaque affichage interroge un service bénévole.
+          </p>
         </section>
 
         <section>
@@ -51,6 +67,11 @@ export function AboutSheet({ open, onClose }: Props) {
               région, État) — les salles privées commerciales sont exclues.
             </li>
           </ul>
+          <p className="mt-2">
+            Pour les aires de jeux, même exigence traduite dans le vocabulaire
+            d’OpenStreetMap : celles réservées aux clients d’un commerce, privées ou payantes
+            sont écartées, les aires couvertes aussi.
+          </p>
           <p className="mt-2 text-muted">
             Ces informations sont déclaratives : un équipement peut être fermé, en travaux ou
             réservé à des créneaux scolaires. Vérifiez sur place.
@@ -78,13 +99,16 @@ export function AboutSheet({ open, onClose }: Props) {
             >
               portail du ministère
             </a>
-            , généralement par le service des sports de la commune propriétaire.
+            , généralement par le service des sports de la commune propriétaire. Pour une aire
+            de jeux, la correction se fait directement sur OpenStreetMap : le lien est en bas de
+            chaque fiche.
           </p>
         </section>
 
         <p className="text-xs text-muted">
-          Données sous Licence Ouverte / Open Licence (Etalab). Application indépendante, sans
-          lien officiel avec le ministère.
+          Données du ministère sous Licence Ouverte / Open Licence (Etalab), données
+          OpenStreetMap sous ODbL. Application indépendante, sans lien officiel avec le
+          ministère.
         </p>
       </div>
     </BottomSheet>

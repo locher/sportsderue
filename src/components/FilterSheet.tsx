@@ -21,7 +21,7 @@ const GROUPS: { id: 'urbain' | 'nature'; title: string; hint: string }[] = [
   {
     id: 'urbain',
     title: 'En ville, au pied de chez soi',
-    hint: 'Équipements de proximité, praticables sans réservation.',
+    hint: 'Équipements de proximité, praticables sans réservation, et aires de jeux pour enfants.',
   },
   {
     id: 'nature',

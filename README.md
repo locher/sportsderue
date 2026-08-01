@@ -24,6 +24,7 @@ les équipements autour de soi. On filtre par sport en une tape, ou on cherche u
 | Usage | Service | Clé requise |
 | --- | --- | --- |
 | Équipements sportifs | [Data ES — Recensement des équipements sportifs](https://equipements.sports.gouv.fr/explore/dataset/data-es/) (ministère chargé des Sports, API Opendatasoft Explore v2.1) | non |
+| Aires de jeux pour enfants | [OpenStreetMap](https://www.openstreetmap.org/copyright) via [Overpass](https://overpass-api.de/) | non |
 | Fond de carte | [Plan IGN v2 vectoriel](https://geoservices.ign.fr/services-geoplateforme-diffusion) (Géoplateforme) | non |
 | Recherche de ville / adresse | [Géocodage Géoplateforme](https://geoservices.ign.fr/services-geoplateforme-geocodage) (Base Adresse Nationale) | non |
 
@@ -31,6 +32,33 @@ Quota anonyme de l'API Data ES : **5 000 appels par jour et par adresse IP**. Co
 requêtes partent du navigateur de chaque visiteur, le quota est individuel ; l'application
 limite malgré tout les appels (anti-rebond de 400 ms, cache mémoire réutilisant les
 emprises déjà chargées, cache réseau du service worker).
+
+### Pourquoi les aires de jeux viennent d'ailleurs
+
+Le RES ne recense que du **sport** : ses 185 valeurs de `equip_type_name` ne contiennent
+aucune aire de jeux, et la plus proche — « Parc Mobil'Ludique », 144 enregistrements — est
+une piste d'éducation routière. data.gouv.fr n'héberge que des jeux de données communaux
+isolés. Il n'existe donc aucun référentiel national des aires de jeux ; OpenStreetMap est
+la seule couverture complète (**45 922** objets `leisure=playground` en France, dont deux
+tiers dessinés en polygones, ramenés à un point par `out center`).
+
+Overpass est un service bénévole, plus lent (2 à 15 s) et plus fragile que l'API du
+ministère — il répond régulièrement 504, ou 200 avec une page HTML « too busy ». D'où
+trois précautions dans `src/lib/overpass.ts` :
+
+- la catégorie « Jeux » est **décochée par défaut** : seuls ceux qui la cochent paient
+  l'appel ;
+- l'appel est **indépendant** de celui de Data ES, sur son propre effet — une panne ou une
+  lenteur d'OpenStreetMap ne retient jamais la liste des équipements sportifs ;
+- l'échec ne remonte qu'un **avertissement discret** au-dessus de la liste, après une
+  unique reprise à 1,5 s (les pannes observées sont passagères ; insister davantage sur un
+  service saturé serait contre-productif).
+
+Mêmes exigences d'accès que pour le RES, traduites en étiquettes OSM : `access` valant
+`private`, `customers`, `no`, `permit`, `members` ou `residents` est écarté (`permissive`
+est conservé), ainsi que `indoor=yes` et `fee=yes`. Une aire **sans** étiquette `access`
+est retenue : c'est le cas le plus fréquent, et l'absence d'étiquette n'est pas une
+restriction.
 
 ### Quels équipements sont retenus ?
 
@@ -114,13 +142,15 @@ src/
 ├── types.ts                   modèle d'équipement, filtres, lieux
 ├── lib/
 │   ├── dataes.ts              client Data ES : construction ODSQL, export GeoJSON, fiche
+│   ├── overpass.ts            client Overpass : aires de jeux OpenStreetMap
 │   ├── sports.ts              taxonomie des sports (types, activités, emojis, couleurs)
 │   ├── geocode.ts             recherche et géocodage inverse Géoplateforme
 │   ├── geo.ts                 distances, emprises, liens d'itinéraire
 │   ├── cache.ts               cache mémoire des résultats par emprise + filtres
+│   ├── text.ts                comparaison de libellés « au sens près »
 │   └── urlState.ts            état partageable dans l'URL, filtres mémorisés
 ├── hooks/
-│   ├── useEquipments.ts       chargement des équipements de la vue (anti-rebond, abandon)
+│   ├── useEquipments.ts       chargement de la vue depuis les deux bases (anti-rebond, abandon)
 │   ├── useGeolocation.ts      géolocalisation ponctuelle et messages d'erreur
 │   └── useViewportHeight.ts   hauteur visible réelle (mobile)
 └── components/
@@ -137,9 +167,11 @@ src/
 
 Détails d'implémentation utiles à connaître :
 
-- **Une requête par vue.** L'endpoint `exports/geojson` renvoie jusqu'à 1 500 équipements
-  en un appel, là où `records` plafonne à 100. Au-delà de 1 500, la liste est signalée
-  comme tronquée et le nombre réel est demandé séparément.
+- **Une requête par vue et par base.** L'endpoint `exports/geojson` renvoie jusqu'à 1 500
+  équipements en un appel, là où `records` plafonne à 100. Au-delà de 1 500, la liste est
+  signalée comme tronquée et le nombre réel est demandé séparément. Les aires de jeux
+  suivent le même cycle sur leur propre effet, plafonnées à 900 (Paris entier en compte
+  ~1 400).
 - **Zoom minimum.** En dessous du zoom 10,5 l'emprise couvre trop de territoire : rien
   n'est chargé et l'interface invite à zoomer ou à chercher une commune.
 - **Agrégats MapLibre.** Les épingles sont générées au `<canvas>` (bulle blanche cerclée de
@@ -158,6 +190,9 @@ Détails d'implémentation utiles à connaître :
   qui noieraient la vue de proximité. Elles restent accessibles via la catégorie Randonnée.
 - Les correspondances par activité écartent les équipements dont `equip_nature` est vide
   (~750 en France, dont 173 city-stades). Ceux-là restent trouvables par leur type.
+- Les aires de jeux dépendent de la couverture d'OpenStreetMap : trois sur quatre n'ont
+  pas de nom, les équipements (`playground=slide`…) et la tranche d'âge sont renseignés sur
+  moins de 6 % d'entre elles, et le service Overpass est régulièrement saturé.
 - La distance affichée est à vol d'oiseau, pas un temps de marche.
 - Pas encore : horaires d'ouverture (absents du RES), photos, signalement d'erreur intégré,
   itinéraire dans l'application.
@@ -166,4 +201,6 @@ Détails d'implémentation utiles à connaître :
 
 Code sous licence MIT. Données Data ES et Géoplateforme sous
 [Licence Ouverte / Open Licence](https://www.etalab.gouv.fr/licence-ouverte-open-licence/)
-(Etalab). Application indépendante, sans lien officiel avec le ministère chargé des Sports.
+(Etalab). Aires de jeux © les contributeurs
+[OpenStreetMap](https://www.openstreetmap.org/copyright), sous ODbL. Application
+indépendante, sans lien officiel avec le ministère chargé des Sports.

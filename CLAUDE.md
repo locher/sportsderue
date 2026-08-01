@@ -206,6 +206,55 @@ Trois règles qui vont ensemble — en défaire une casse l'équilibre :
 Les valeurs sont mises en commun entre catégories dans la clause plutôt qu'un prédicat par
 catégorie : résultat identique, URL deux fois plus courte.
 
+## Les aires de jeux ne sont pas dans le RES
+
+Question déjà instruite, réponse ferme : **le RES ne recense que du sport**. Ses 185 valeurs
+de `equip_type_name` ne contiennent aucune aire de jeux ; la plus proche,
+`Parc Mobil'Ludique` (144 enregistrements), est une piste d'éducation routière — ses
+`aps_name` disent `Cyclisme sur route/Vélo Couché`. `search(equip_type_name, "jeu")` renvoie
+0. Côté data.gouv.fr, rien de national : deux jeux de données communaux (Anglet,
+Fleury-les-Aubrais). Ne pas rechercher, c'est fait.
+
+La couverture vient donc d'**OpenStreetMap** (`leisure=playground`) via Overpass :
+**45 922** objets en France, dont deux tiers en polygones — `nwr` + `out center` les ramène
+tous à un point. `src/lib/overpass.ts`.
+
+Ce qu'il faut savoir avant d'y toucher :
+
+- **Overpass n'est pas Opendatasoft.** Service bénévole, 2 à 15 s de réponse, et des pannes
+  régulières : 504 de passerelle, ou **200 avec une page HTML** « too busy » (d'où la
+  validation du corps, pas seulement du statut). Mesuré sur place pendant le développement :
+  trois échecs sur huit appels. Une seule reprise, à 1,5 s — insister sur un service saturé
+  l'aggrave. Quota : 2 créneaux simultanés par IP, un 429 quand on les dépasse.
+- **Les miroirs sont pires, ne pas les remettre** : `overpass.kumi.systems` répond 504 après
+  deux minutes, `overpass.private.coffee` met 56 s et sert des données vieilles d'un mois.
+- **Trois précautions qui vont ensemble** : catégorie décochée par défaut (seuls ceux qui la
+  cochent paient l'appel), effet **séparé** de celui de Data ES dans `useEquipments` (une
+  lenteur d'OSM ne doit jamais retenir les terrains de basket), et échec en simple
+  **avertissement** au-dessus de la liste — jamais en erreur bloquante.
+- **Filtres d'accès posés côté serveur**, en miroir du filtre « propriétaire public » du
+  RES : `access` valant `private|customers|no|permit|members|residents` écarté (`customers`
+  élimine les aires de McDonald's), plus `indoor=yes` et `fee=yes`. Une expression `!~`
+  retient aussi les objets **sans** l'étiquette — c'est voulu, l'absence d'`access` est le
+  cas majoritaire et ne vaut pas restriction.
+- **`lit` et `wheelchair` sont filtrés côté client, pas dans la requête** : une aire sans
+  étiquette `lit` n'est pas une aire non éclairée, elle est non renseignée. Les poser côté
+  serveur ferait passer une lacune de saisie pour une réponse.
+- **Le piège du relais Playwright** : Overpass répond **406** à `User-Agent: node`, celui
+  que Node met par défaut. Le relais doit réexpédier les en-têtes du navigateur. Ce n'est
+  pas un bug de l'application — un vrai navigateur passe.
+- Nom et type sont volontairement **identiques** (`Aire de jeux`) quand OSM n'a pas de nom,
+  ce qui est le cas trois fois sur quatre : `sameLabel()` (`src/lib/text.ts`) évite alors
+  d'écrire deux fois la même ligne dans la liste et dans le bandeau de la fiche.
+- La fiche d'une aire de jeux **ne déclenche aucun appel** : la réponse de liste porte déjà
+  toutes les étiquettes. Seul un lien partagé (`?e=osm:way/123`) en demande un.
+- L'emoji 🛝 est **Unicode 15** (2022) : iOS 16.4+, Android 14+. C'est le plus récent de la
+  taxonomie, qui exigeait jusque-là Unicode 11. Sur un appareil plus ancien, il tombera en
+  tofu — accepté, aucun autre emoji ne dit « aire de jeux ».
+
+L'attribution ODbL est posée dans le contrôle d'attribution de MapLibre **en permanence**,
+pas seulement quand la catégorie est cochée : plus simple, et jamais faux.
+
 ## Les autres services
 
 - **Géocodage** : `https://data.geopf.fr/geocodage/search` et `/reverse`.
@@ -300,12 +349,17 @@ lignes suffit :
 
 ```js
 await ctx.route('**://*/**', async (route) => {
-  const u = route.request().url()
+  const req = route.request()
+  const u = req.url()
   if (u.startsWith('http://127.0.0.1:5188')) return route.continue()
-  if (!/^https:\/\/(data\.geopf\.fr|equipements\.sports\.gouv\.fr)\//.test(u)) {
+  if (!/^https:\/\/(data\.geopf\.fr|equipements\.sports\.gouv\.fr|overpass-api\.de)\//.test(u)) {
     return route.abort() // tout le reste (télémétrie Chromium) est coupé
   }
-  const res = await fetch(u)
+  // Overpass est appelé en POST, et répond 406 au `User-Agent: node` de Node :
+  // il faut relayer le corps *et* les en-têtes du navigateur.
+  const headers = { ...req.headers() }
+  for (const k of ['host', 'connection', 'content-length', 'accept-encoding']) delete headers[k]
+  const res = await fetch(u, { method: req.method(), headers, body: req.postData() ?? undefined })
   route.fulfill({
     status: res.status,
     headers: { 'content-type': res.headers.get('content-type') ?? '' },
@@ -313,6 +367,9 @@ await ctx.route('**://*/**', async (route) => {
   })
 })
 ```
+
+Mettre la clé de cache sur `(méthode, URL, corps)` et non sur l'URL seule, sinon toutes les
+requêtes Overpass se confondent — et la reprise sur erreur rejoue le même échec en cache.
 
 Mettre les réponses en cache dans une `Map` : sans cela une vue urbaine relaie une centaine
 de tuiles à chaque capture. Options Chromium qui marchent avec MapLibre :
@@ -353,11 +410,16 @@ Détails d'outillage :
 
 Les modifier sans y penser dégrade l'expérience :
 
-- Une seule requête par vue, avec anti-rebond de 400 ms et abandon de la précédente.
+- Une seule requête par vue **et par base**, avec anti-rebond de 400 ms et abandon de la
+  précédente.
 - Aucune catégorie cochée : **aucun appel n'est envoyé**, la liste est vide par
-  construction. (Avant, la clause `AND FALSE` partait à l'API et revenait en 400.)
+  construction. (Avant, la clause `AND FALSE` partait à l'API et revenait en 400.) Vrai base
+  par base : cocher « Jeux » seul n'envoie rien à Data ES, et décocher « Jeux » n'envoie
+  rien à Overpass — `categoriesBySource()` fait la répartition.
 - `MAX_FEATURES = 1500` : au-delà, la liste est marquée tronquée et le total réel est
-  demandé séparément pour l'annoncer.
+  demandé séparément pour l'annoncer. `MAX_PLAYGROUNDS = 900` côté Overpass (Paris entier
+  en compte ~1 400) ; quand les aires de jeux sont tronquées, le total n'est **pas**
+  affiché — il ne compte que le RES et serait faux.
 - `MIN_ZOOM_FOR_DATA = 10.5` : en dessous, on ne charge rien et on invite à zoomer.
 - Le cache réutilise une emprise déjà chargée qui **contient** la nouvelle (zoom avant
   gratuit) — un résultat tronqué n'est jamais réutilisé, il ne décrit pas toute son emprise.
@@ -381,6 +443,9 @@ Les modifier sans y penser dégrade l'expérience :
   aussi « en accès libre » (un Fitness Park remontait dans les premiers essais).
 - Catégories nature (randonnée, escalade, baignade) décochées par défaut : 25 000 boucles
   de randonnée noieraient la carte urbaine.
+- « Jeux » décochée par défaut aussi, mais pour une autre raison : c'est le coût imposé à
+  Overpass, pas le volume affiché (58 aires sur une vue de Toulouse, contre 61 équipements
+  sportifs — l'équilibre est bon).
 - **On cherche par type d'équipement *et* par activité praticable** (voir « Chercher par
   type *et* par activité »). Ne pas revenir au type seul : c'est ce qui rendait les
   city-stades introuvables sous « Basket ».

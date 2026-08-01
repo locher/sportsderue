@@ -29,6 +29,8 @@ const LAYER_HALO = 'equipements-halo'
 const ATTRIBUTION = [
   '<a href="https://www.ign.fr/" target="_blank" rel="noreferrer">IGN</a>',
   '<a href="https://equipements.sports.gouv.fr/" target="_blank" rel="noreferrer">Data ES — ministère des Sports</a>',
+  // Les aires de jeux viennent d'OpenStreetMap : l'ODbL impose de le mentionner.
+  '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© les contributeurs OpenStreetMap</a>',
 ].join(' · ')
 
 export interface MapViewHandle {

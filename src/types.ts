@@ -1,9 +1,14 @@
-import type { CategoryId } from './lib/sports'
+import type { CategoryId, DataSource } from './lib/sports'
 
 /** Équipement tel que manipulé par l'interface (version allégée de l'enregistrement Data ES). */
 export interface Equipment {
-  /** `equip_numero` : identifiant national unique. */
+  /**
+   * `equip_numero` (identifiant national) pour le RES, `osm:way/12345` pour une aire
+   * de jeux OpenStreetMap. Le préfixe garantit qu'aucune collision n'est possible.
+   */
   id: string
+  /** Base d'origine : le RES du ministère, ou OpenStreetMap pour les aires de jeux. */
+  source: DataSource
   name: string
   /** Nom de l'installation qui porte l'équipement (`inst_nom`). */
   installation: string | null
@@ -47,6 +52,10 @@ export interface EquipmentDetail extends Equipment {
   updatedAt: string | null
   department: string | null
   region: string | null
+  /** Tranche d'âge affichée (« 3 à 12 ans ») — aires de jeux OpenStreetMap uniquement. */
+  ageRange?: string | null
+  /** Horaires d'ouverture bruts — aires de jeux OpenStreetMap uniquement. */
+  openingHours?: string | null
 }
 
 export interface Bbox {

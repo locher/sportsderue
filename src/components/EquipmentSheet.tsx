@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { Equipment, EquipmentDetail } from '../types'
 import { fetchEquipmentDetail, officialRecordUrl } from '../lib/dataes'
+import { playgroundRecordUrl } from '../lib/overpass'
 import { directionsUrl, formatDistance } from '../lib/geo'
+import { sameLabel } from '../lib/text'
 import { categoryStyle } from '../lib/sports'
 import { BottomSheet } from './BottomSheet'
 import {
@@ -41,6 +43,14 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
   useEffect(() => {
     if (!equipment) {
       setDetail(null)
+      return
+    }
+    // Une aire de jeux arrive déjà complète : la réponse de liste d'Overpass porte
+    // toutes les étiquettes de l'objet, contrairement à Data ES qui n'en renvoie
+    // qu'un extrait et impose un second appel.
+    if (equipment.source === 'osm') {
+      setDetail(equipment as EquipmentDetail)
+      setLoading(false)
       return
     }
     setDetail(null)
@@ -91,6 +101,8 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
   if (equipment?.distance !== undefined) {
     stats.push({ value: formatDistance(equipment.distance), label: 'à vol d’oiseau' })
   }
+  // Sur une aire de jeux, la tranche d'âge prime sur tout le reste.
+  if (detail?.ageRange) stats.push({ value: detail.ageRange, label: 'Âge conseillé' })
   if (equipment?.nature) {
     stats.push({ value: NATURE_LABEL[equipment.nature] ?? equipment.nature, label: 'Nature' })
   }
@@ -114,6 +126,9 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
     facts.push({ icon: <AccessibleIcon />, label: 'Accès PMR', value: 'Déclaré accessible' })
   }
   if (detail?.toilets) facts.push({ icon: <InfoIcon />, label: 'Sanitaires', value: 'Sur place' })
+  if (detail?.openingHours) {
+    facts.push({ icon: <InfoIcon />, label: 'Horaires', value: detail.openingHours })
+  }
   if (detail?.serviceDate) {
     facts.push({ icon: <InfoIcon />, label: 'Mise en service', value: detail.serviceDate })
   }
@@ -220,7 +235,9 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
 
           {equipment.sports.length > 0 && (
             <div>
-              <h3 className="eyebrow mb-2.5 text-muted">Activités praticables</h3>
+              <h3 className="eyebrow mb-2.5 text-muted">
+                {equipment.source === 'osm' ? 'Sur place' : 'Activités praticables'}
+              </h3>
               <ul className="flex flex-wrap gap-1.5">
                 {equipment.sports.slice(0, 12).map((sport) => (
                   <li
@@ -269,19 +286,40 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
           )}
 
           <div className="space-y-1.5 border-t border-line pt-3.5 text-xs leading-relaxed text-muted">
-            <p>
-              Données déclaratives du Recensement des équipements sportifs (RES)
-              {detail?.updatedAt ? `, mises à jour le ${formatDate(detail.updatedAt)}` : ''}.
-              L’accès peut être restreint temporairement : vérifiez sur place.
-            </p>
-            <a
-              href={officialRecordUrl(equipment.id)}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-block font-bold text-ink underline decoration-lime decoration-2 underline-offset-2"
-            >
-              Voir la fiche officielle ({equipment.id})
-            </a>
+            {equipment.source === 'osm' ? (
+              <>
+                <p>
+                  Aire de jeux cartographiée par les contributeurs d’OpenStreetMap
+                  {detail?.updatedAt ? `, vérifiée le ${formatDate(detail.updatedAt)}` : ''}.
+                  Les équipements et la tranche d’âge ne sont pas toujours renseignés :
+                  vérifiez sur place.
+                </p>
+                <a
+                  href={playgroundRecordUrl(equipment.id)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block font-bold text-ink underline decoration-lime decoration-2 underline-offset-2"
+                >
+                  Voir ou corriger sur OpenStreetMap
+                </a>
+              </>
+            ) : (
+              <>
+                <p>
+                  Données déclaratives du Recensement des équipements sportifs (RES)
+                  {detail?.updatedAt ? `, mises à jour le ${formatDate(detail.updatedAt)}` : ''}.
+                  L’accès peut être restreint temporairement : vérifiez sur place.
+                </p>
+                <a
+                  href={officialRecordUrl(equipment.id)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block font-bold text-ink underline decoration-lime decoration-2 underline-offset-2"
+                >
+                  Voir la fiche officielle ({equipment.id})
+                </a>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -292,16 +330,6 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
 /** Mesure en notation française : « 19,5 » et non « 19.5 ». */
 function formatMeasure(value: number): string {
   return value.toLocaleString('fr-FR', { maximumFractionDigits: 1 })
-}
-
-/** Deux libellés qui ne diffèrent que par la ponctuation ou la casse. */
-function sameLabel(a: string, b: string): boolean {
-  const normalize = (value: string) =>
-    value
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[^\p{Letter}\p{Number}]+/gu, '')
-  return normalize(a) === normalize(b)
 }
 
 function formatDate(iso: string): string {
