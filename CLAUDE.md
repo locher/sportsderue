@@ -39,6 +39,10 @@ soit installable comme une application, et que ça reste gratuit à héberger.
   à faire après un push, et aucun jeton n'est nécessaire.
 - Corollaire : je n'ai pas d'accès Netlify, donc **je ne peux pas lire le résultat du
   build**. D'où la règle : toujours lancer `npm run build` localement avant de pousser.
+  Le site lui-même est **protégé par mot de passe** (une requête anonyme renvoie 401 et une
+  page « Login Redirect » vers `app.netlify.com/edge-access`) : inutile d'essayer de vérifier
+  le déploiement en `curl`, ça ne dira jamais rien d'autre. La seule vérification possible
+  de mon côté est locale, sur le serveur Vite (voir « Vérifier son travail »).
 - `.github/workflows/deploy-pages.yml` existe mais **ne déploie pas** : le build passe, puis
   `configure-pages` échoue (`Resource not accessible by integration` — créer le site Pages
   est un droit d'administrateur qu'un jeton de workflow n'a pas), et Pages sur un dépôt
