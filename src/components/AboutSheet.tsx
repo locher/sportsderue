@@ -52,8 +52,10 @@ export function AboutSheet({ open, onClose }: Props) {
             >
               OpenStreetMap
             </a>
-            , qui en cartographie près de 46 000 en France. C’est pourquoi la catégorie
-            « Jeux » se coche à la demande : chaque affichage interroge un service bénévole.
+            , qui en cartographie près de 46 000 en France. Elles sont relevées à l’avance
+            et livrées avec l’application : l’affichage est immédiat et fonctionne
+            hors-ligne, mais la donnée date du dernier relevé — sa date figure en bas de
+            chaque fiche.
           </p>
         </section>
 

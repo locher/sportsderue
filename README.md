@@ -24,7 +24,7 @@ les équipements autour de soi. On filtre par sport en une tape, ou on cherche u
 | Usage | Service | Clé requise |
 | --- | --- | --- |
 | Équipements sportifs | [Data ES — Recensement des équipements sportifs](https://equipements.sports.gouv.fr/explore/dataset/data-es/) (ministère chargé des Sports, API Opendatasoft Explore v2.1) | non |
-| Aires de jeux pour enfants | [OpenStreetMap](https://www.openstreetmap.org/copyright) via [Overpass](https://overpass-api.de/) | non |
+| Aires de jeux pour enfants | [OpenStreetMap](https://www.openstreetmap.org/copyright), relevé à l'avance et livré avec l'application | non |
 | Fond de carte | [Plan IGN v2 vectoriel](https://geoservices.ign.fr/services-geoplateforme-diffusion) (Géoplateforme) | non |
 | Recherche de ville / adresse | [Géocodage Géoplateforme](https://geoservices.ign.fr/services-geoplateforme-geocodage) (Base Adresse Nationale) | non |
 
@@ -39,32 +39,32 @@ Le RES ne recense que du **sport** : ses 185 valeurs de `equip_type_name` ne con
 aucune aire de jeux, et la plus proche — « Parc Mobil'Ludique », 144 enregistrements — est
 une piste d'éducation routière. data.gouv.fr n'héberge que des jeux de données communaux
 isolés. Il n'existe donc aucun référentiel national des aires de jeux ; OpenStreetMap est
-la seule couverture complète (**45 922** objets `leisure=playground` en France, dont deux
-tiers dessinés en polygones, ramenés à un point par `out center`).
+la seule couverture complète (~**46 000** objets `leisure=playground` en France).
 
-Overpass est un service bénévole, plus lent (2 à 15 s) et plus fragile que l'API du
-ministère — il répond régulièrement 504, ou 200 avec une page HTML « too busy ». D'où
-trois précautions dans `src/lib/overpass.ts` :
+Ces données ne sont **pas interrogées à l'exécution**. Overpass, le service qui permet de
+les requêter, a été essayé et abandonné : mesuré en série sur une même vue, il échouait
+**trois fois sur huit** (504 de passerelle, 429 de quota, pages « too busy » servies avec
+un statut 200), au point que la catégorie ne fonctionnait pas depuis un téléphone.
 
-- la catégorie « Jeux » est **décochée par défaut** : seuls ceux qui la cochent paient
-  l'appel ;
-- l'appel est **indépendant** de celui de Data ES, sur son propre effet — une panne ou une
-  lenteur d'OpenStreetMap ne retient jamais la liste des équipements sportifs ;
-- l'échec ne remonte qu'un **avertissement discret** au-dessus de la liste, après une
-  unique reprise à 1,5 s (les pannes observées sont passagères ; insister davantage sur un
-  service saturé serait contre-productif).
+L'aléa est déplacé au moment de la génération. `npm run playgrounds`
+(`scripts/build-playgrounds.mjs`) interroge Overpass cellule par cellule, avec cinq
+reprises espacées, et écrit `public/data/playgrounds/` : un fichier par **cellule d'un
+degré**, plus un `index.json` qui liste les cellules non vides et la date du relevé.
+L'application ne charge que les trois ou quatre cellules que recouvre la vue, mises en
+cache par le service worker.
 
-Mêmes exigences d'accès que pour le RES, traduites en étiquettes OSM : `access` valant
-`private`, `customers`, `no`, `permit`, `members` ou `residents` est écarté (`permissive`
-est conservé), ainsi que `indoor=yes` et `fee=yes`. Une aire **sans** étiquette `access`
-est retenue : c'est le cas le plus fréquent, et l'absence d'étiquette n'est pas une
-restriction.
+Ce qu'on y gagne : affichage instantané, fonctionnement hors-ligne, aucun quota, aucune
+panne de service tierce. Ce qu'on y perd : la donnée fige entre deux générations — le
+script est à relancer de temps en temps, les aires de jeux bougent peu, et la date du
+relevé est affichée en bas de chaque fiche.
 
-Ce tri est fait à la réception, et la requête ne porte qu'un seul critère de tag. Une
-expression `!~` interdit à Overpass d'utiliser son index et lui fait balayer toute
-l'emprise : sur une vue de 346 km², la même requête passe de **19,1 s à 1,4 s** une fois
-les exclusions sorties de la requête. Le résultat est identique, pour 8 % de données
-transférées en plus.
+Mêmes exigences d'accès que pour le RES, traduites en étiquettes OSM et appliquées à la
+génération : `access` valant `private`, `customers`, `no`, `permit`, `members` ou
+`residents` est écarté (`permissive` est conservé), ainsi que `indoor=yes` et `fee=yes`.
+Une aire **sans** étiquette `access` est retenue : c'est le cas le plus fréquent, et
+l'absence d'étiquette n'est pas une restriction. En revanche `lit` et `wheelchair` restent
+filtrés à l'affichage, parce qu'une aire sans étiquette `lit` n'est pas une aire non
+éclairée — elle est non renseignée.
 
 ### Quels équipements sont retenus ?
 
@@ -148,7 +148,7 @@ src/
 ├── types.ts                   modèle d'équipement, filtres, lieux
 ├── lib/
 │   ├── dataes.ts              client Data ES : construction ODSQL, export GeoJSON, fiche
-│   ├── overpass.ts            client Overpass : aires de jeux OpenStreetMap
+│   ├── playgrounds.ts         aires de jeux : lecture des cellules statiques
 │   ├── sports.ts              taxonomie des sports (types, activités, emojis, couleurs)
 │   ├── geocode.ts             recherche et géocodage inverse Géoplateforme
 │   ├── geo.ts                 distances, emprises, liens d'itinéraire
@@ -174,11 +174,11 @@ src/
 
 Détails d'implémentation utiles à connaître :
 
-- **Une requête par vue et par base.** L'endpoint `exports/geojson` renvoie jusqu'à 1 500
-  équipements en un appel, là où `records` plafonne à 100. Au-delà de 1 500, la liste est
-  signalée comme tronquée et le nombre réel est demandé séparément. Les aires de jeux
-  suivent le même cycle sur leur propre effet, plafonnées à 900 (Paris entier en compte
-  ~1 400).
+- **Une requête par vue.** L'endpoint `exports/geojson` renvoie jusqu'à 1 500 équipements
+  en un appel, là où `records` plafonne à 100. Au-delà de 1 500, la liste est signalée
+  comme tronquée et le nombre réel est demandé séparément. Les aires de jeux suivent le
+  même cycle sur leur propre effet, mais depuis les fichiers locaux, et sont plafonnées à
+  900 à l'affichage.
 - **Zoom minimum.** En dessous du zoom 10,5 l'emprise couvre trop de territoire : rien
   n'est chargé et l'interface invite à zoomer ou à chercher une commune.
 - **Agrégats MapLibre.** Les épingles sont générées au `<canvas>` (bulle blanche cerclée de
@@ -205,8 +205,9 @@ Détails d'implémentation utiles à connaître :
 - Les correspondances par activité écartent les équipements dont `equip_nature` est vide
   (~750 en France, dont 173 city-stades). Ceux-là restent trouvables par leur type.
 - Les aires de jeux dépendent de la couverture d'OpenStreetMap : trois sur quatre n'ont
-  pas de nom, les équipements (`playground=slide`…) et la tranche d'âge sont renseignés sur
-  moins de 6 % d'entre elles, et le service Overpass est régulièrement saturé.
+  pas de nom, et les équipements (`playground=slide`…) comme la tranche d'âge sont
+  renseignés sur moins de 6 % d'entre elles. Leur relevé date de la dernière exécution de
+  `npm run playgrounds`.
 - La distance affichée est à vol d'oiseau, pas un temps de marche.
 - Pas encore : horaires d'ouverture (absents du RES), photos, signalement d'erreur intégré,
   itinéraire dans l'application.

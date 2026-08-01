@@ -22,7 +22,7 @@ import {
   writeState,
 } from './lib/urlState'
 import { fetchEquipmentDetail } from './lib/dataes'
-import { fetchPlaygroundDetail, isPlaygroundId } from './lib/overpass'
+import { fetchPlaygroundDetail, isPlaygroundId } from './lib/playgrounds'
 
 const NATURE_IDS = CATEGORIES.filter((c) => c.group === 'nature').map((c) => c.id)
 
@@ -137,8 +137,10 @@ export default function App() {
     if (!id) return
     const controller = new AbortController()
     // Le préfixe de l'identifiant dit à quelle base s'adresser.
+    // Le partage écrit toujours `lat`/`lng` à côté de `e` : pour une aire de jeux, la
+    // position dit quelle cellule ouvrir, il n'y a pas de requête à faire.
     const load = isPlaygroundId(id)
-      ? fetchPlaygroundDetail(id, controller.signal)
+      ? fetchPlaygroundDetail(id, boot.current.position)
       : fetchEquipmentDetail(id, controller.signal)
     void load
       .then((detail) => {

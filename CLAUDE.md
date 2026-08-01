@@ -247,71 +247,53 @@ de `equip_type_name` ne contiennent aucune aire de jeux ; la plus proche,
 0. Côté data.gouv.fr, rien de national : deux jeux de données communaux (Anglet,
 Fleury-les-Aubrais). Ne pas rechercher, c'est fait.
 
-La couverture vient donc d'**OpenStreetMap** (`leisure=playground`) via Overpass :
-**45 922** objets en France, dont deux tiers en polygones — `nwr` + `out center` les ramène
-tous à un point. `src/lib/overpass.ts`.
+La couverture vient donc d'**OpenStreetMap** (`leisure=playground`) : **~46 000** objets en
+France, dont deux tiers en polygones — `nwr` + `out center` les ramène tous à un point.
+
+**Ces données ne sont plus interrogées à l'exécution.** Overpass a été essayé et abandonné :
+mesuré en série sur une même vue, il échouait **trois fois sur huit** (504 de passerelle,
+429 de quota, pages « too busy » servies en 200), et signalé depuis un téléphone la
+catégorie ne fonctionnait tout simplement jamais. Ne pas y revenir.
+
+L'aléa est déplacé à la génération : `scripts/build-playgrounds.mjs` (`npm run playgrounds`)
+interroge Overpass cellule par cellule, avec cinq reprises espacées, et écrit
+`public/data/playgrounds/`. À relancer de temps en temps — les aires de jeux bougent peu, et
+la date de relevé est inscrite dans `index.json` puis affichée dans la fiche.
 
 Ce qu'il faut savoir avant d'y toucher :
 
-- **Overpass n'est pas Opendatasoft.** Service bénévole, 2 à 15 s de réponse, et des pannes
-  régulières : 504 de passerelle, ou **200 avec une page HTML** « too busy » (d'où la
-  validation du corps, pas seulement du statut). Mesuré sur place pendant le développement :
-  trois échecs sur huit appels. Une seule reprise, à 1,5 s — insister sur un service saturé
-  l'aggrave. Quota : 2 créneaux simultanés par IP, un 429 quand on les dépasse.
-- **Les miroirs sont pires, ne pas les remettre** : `overpass.kumi.systems` répond 504 après
-  deux minutes, `overpass.private.coffee` met 56 s et sert des données vieilles d'un mois.
-- **Trois précautions qui vont ensemble** : catégorie décochée par défaut (seuls ceux qui la
-  cochent paient l'appel), effet **séparé** de celui de Data ES dans `useEquipments` (une
-  lenteur d'OSM ne doit jamais retenir les terrains de basket), et échec en simple
-  **avertissement** au-dessus de la liste — jamais en erreur bloquante.
-- **La requête ne porte qu'un seul critère de tag**, `leisure=playground`, et rien
-  d'autre. Tout le reste du tri se fait à la réception. Ce n'est pas un choix de style :
-  les exclusions d'accès étaient d'abord posées dans la requête en `["access"!~"…"]`, et
-  une expression `!~` **interdit à Overpass d'utiliser son index de tags** — il balaie
-  alors toute l'emprise. Mesuré sur une vue de 346 km² autour de Valence, la même requête
-  passe de **19,1 s à 1,4 s** une fois les `!~` retirés. C'est ce qui rendait la catégorie
-  inutilisable sur un téléphone (signalé depuis le terrain, le message affiché était
-  « OpenStreetMap n'a pas répondu à temps »). Décomposition mesurée des 19 s : ~2,4 s de
-  recherche, ~5,7 s pour `out center`, ~8 s pour les seules expressions `!~`.
-  Ne pas les y remettre. Le tri client coûte 8 % de données en plus (18 ko → 20 ko).
-- **Deux tris côté client, pour deux raisons différentes** — ne pas les confondre :
-  - `access` (`private|customers|no|permit|members|residents`, `customers` élimine les
-    aires de McDonald's), `indoor=yes` et `fee=yes` : c'est le miroir du filtre
-    « propriétaire public » du RES. L'absence d'étiquette vaut autorisation, c'est le cas
-    majoritaire. Déplacé côté client **pour la vitesse**, à résultat identique — vérifié
-    sur l'emprise de Valence : 114 objets reçus, 107 retenus, exactement comme la requête
-    filtrée d'avant.
-  - `lit` et `wheelchair` : ceux-là ne pourraient **pas** être posés côté serveur sans
-    mentir. Une aire sans étiquette `lit` n'est pas une aire non éclairée, elle est non
-    renseignée — le filtre ferait passer une lacune de saisie pour une réponse.
-- **Les messages d'erreur doivent nommer la vraie cause.** Une première version affichait
-  « n'a pas répondu à temps » pour *tout* rejet du `fetch`, y compris ceux qui tombent en
-  200 ms. Signalé depuis un téléphone (« le message apparaît en moins de 3 secondes »), il
-  envoyait chercher la panne exactement là où elle n'était pas — j'ai perdu un aller-retour
-  entier à optimiser un délai qui n'était pas en cause. Un drapeau distingue désormais
-  notre propre minuterie du reste, et un rejet réseau **rapporte le message du navigateur**
-  (`Load failed`, `Failed to fetch`, `NetworkError…`) : depuis un mobile, c'est la seule
-  piste exploitable.
-- **Un rejet du `fetch` est repris**, comme les 504 et les « too busy ». Seul le 429 ne
-  l'est pas : c'est le quota de l'adresse IP, réessayer ne ferait que l'enfoncer.
-- **Le piège du relais Playwright** : Overpass répond **406** à `User-Agent: node`, celui
-  que Node met par défaut. Le relais doit réexpédier les en-têtes du navigateur. Ce n'est
-  pas un bug de l'application — un vrai navigateur passe. Attention aussi : `route.fulfill()`
-  fabrique la réponse **dans** le navigateur, donc le CORS et la couche réseau ne sont
-  jamais exercés. Ce montage ne peut pas valider un appel inter-origine, et le navigateur
-  du conteneur n'a pas de réseau sortant pour le faire (`ERR_CONNECTION_RESET`, même avec
-  `--proxy-server`).
-- **Les miroirs restent inutilisables**, même avec la requête rapide (retesté) :
-  `private.coffee` 28 s et des données vieilles de deux mois, `kumi.systems` 504 après
-  64 s, `osm.ch` et `osm.jp` sont des extraits régionaux (0 objet en France).
-- **Taux d'échec brut mesuré sur l'instance principale : 3 sur 8** (504, 429, 504) en
-  série sur une même vue parisienne. C'est l'ordre de grandeur avec lequel il faut
-  composer — d'où la reprise et l'échec en avertissement.
+- **Découpage en cellules d'un degré** (`44_4` = coin sud-ouest). Une vue au zoom minimum en
+  recouvre trois ou quatre. Une aire n'est écrite que dans la cellule qui la **contient** :
+  les emprises se touchent et Overpass renvoie les objets à cheval des deux côtés, sans ce
+  test on les compterait deux fois.
+- `index.json` liste les cellules **non vides** : celles qui manquent (mer, forêt) ne
+  déclenchent aucune requête. Les fichiers sont en cache `StaleWhileRevalidate` — servis
+  immédiatement, rafraîchis derrière — car leur nom ne porte pas d'empreinte.
+- **Les tris d'accès sont faits à la génération** : `access` valant
+  `private|customers|no|permit|members|residents` (`customers` élimine les aires de
+  McDonald's), plus `indoor=yes` et `fee=yes`. L'absence d'étiquette vaut autorisation,
+  c'est le cas majoritaire. Changer ce filtre impose de régénérer.
+- **`lit` et `wheelchair` restent filtrés à l'affichage**, et c'est une autre raison : une
+  aire sans étiquette `lit` n'est pas une aire non éclairée, elle est non renseignée. Les
+  figer à la génération ferait passer une lacune de saisie pour une réponse.
+- **La leçon Overpass, si on devait y retoucher** : une expression `!~` dans la requête
+  interdit l'usage de l'index de tags et fait balayer toute l'emprise. Sur 346 km², la même
+  requête passait de **19,1 s à 1,4 s** une fois les `!~` retirés. Le script n'en met aucune.
+- **Overpass répond 406 à `User-Agent: node`**, celui que Node met par défaut. Le script
+  s'identifie explicitement ; un relais Playwright doit réexpédier les en-têtes du
+  navigateur. Attention aussi : `route.fulfill()` fabrique la réponse **dans** le
+  navigateur, donc n'exerce jamais le CORS ni la couche réseau — c'est ce qui m'a fait
+  manquer une panne réelle. Et le navigateur du conteneur n'a pas de réseau sortant
+  (`ERR_CONNECTION_RESET`, même avec `--proxy-server`).
+- **Les miroirs sont inutilisables**, retestés avec la requête rapide : `private.coffee`
+  28 s et des données vieilles de deux mois, `kumi.systems` 504 après 64 s, `osm.ch` et
+  `osm.jp` sont des extraits régionaux (0 objet en France).
 - Nom et type sont volontairement **identiques** (`Aire de jeux`) quand OSM n'a pas de nom,
   ce qui est le cas trois fois sur quatre : `sameLabel()` (`src/lib/text.ts`) évite alors
   d'écrire deux fois la même ligne dans la liste et dans le bandeau de la fiche.
-- La fiche d'une aire de jeux **ne déclenche aucun appel** : la réponse de liste porte déjà
-  toutes les étiquettes. Seul un lien partagé (`?e=osm:way/123`) en demande un.
+- La fiche **ne déclenche aucun chargement** : la cellule porte déjà toutes les étiquettes.
+  Un lien partagé non plus — `share()` écrit toujours `lat`/`lng` à côté de `e`, la position
+  dit quelle cellule ouvrir.
 - L'emoji 🛝 est **Unicode 15** (2022) : iOS 16.4+, Android 14+. C'est le plus récent de la
   taxonomie, qui exigeait jusque-là Unicode 11. Sur un appareil plus ancien, il tombera en
   tofu — accepté, aucun autre emoji ne dit « aire de jeux ».

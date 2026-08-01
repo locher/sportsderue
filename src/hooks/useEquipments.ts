@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Bbox, Equipment, Filters, LngLat } from '../types'
 import { DataEsError, countEquipmentsInBbox, fetchEquipmentsInBbox } from '../lib/dataes'
-import { OverpassError, fetchPlaygroundsInBbox } from '../lib/overpass'
+import { PlaygroundsError, fetchPlaygroundsInBbox } from '../lib/playgrounds'
 import { filtersKey, lookup, playgroundsKey, store } from '../lib/cache'
 import { bboxKey, distanceMeters, padBbox } from '../lib/geo'
 import { categoriesBySource } from '../lib/sports'
@@ -40,10 +40,10 @@ export interface EquipmentsState {
 /**
  * Charge ce qu'il faut afficher pour la vue courante.
  *
- * Les deux bases sont interrogées par des effets **séparés** : Overpass met 2 à 15 s
- * là où Data ES répond en une seconde, et tombe régulièrement en panne. Les fusionner
- * dans un seul `Promise.all` ferait attendre les terrains de basket derrière les aires
- * de jeux, et un échec d'OpenStreetMap viderait toute la carte.
+ * Les deux sources sont lues par des effets **séparés** : l'une part sur le réseau,
+ * l'autre lit des fichiers posés à côté de l'application. Les fusionner dans un seul
+ * `Promise.all` ferait attendre l'une derrière l'autre, et un échec de l'une viderait
+ * toute la carte.
  */
 export function useEquipments({ bbox, zoom, filters, origin }: Options): EquipmentsState {
   const [items, setItems] = useState<Equipment[]>([])
@@ -176,9 +176,9 @@ export function useEquipments({ bbox, zoom, filters, origin }: Options): Equipme
           setPlaygrounds([])
           setPlaygroundsTruncated(false)
           setWarning(
-            cause instanceof OverpassError
+            cause instanceof PlaygroundsError
               ? cause.message
-              : 'Les aires de jeux d’OpenStreetMap n’ont pas pu être chargées.',
+              : 'Les aires de jeux n’ont pas pu être chargées.',
           )
         })
         .finally(() => {

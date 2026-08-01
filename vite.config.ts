@@ -67,6 +67,19 @@ export default defineConfig({
             },
           },
           {
+            // Aires de jeux : fichiers statiques du site, mais dont le nom ne porte pas
+            // d'empreinte. On sert le cache immédiatement — l'affichage est instantané
+            // et fonctionne hors-ligne — et on rafraîchit derrière, pour qu'un nouveau
+            // relevé arrive au chargement suivant.
+            urlPattern: /\/data\/playgrounds\/.*\.json$/i,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'aires-de-jeux',
+              expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
             // Données Data ES : on privilégie le réseau, avec repli hors-ligne.
             urlPattern: /^https:\/\/equipements\.sports\.gouv\.fr\/api\/.*/i,
             handler: 'NetworkFirst',

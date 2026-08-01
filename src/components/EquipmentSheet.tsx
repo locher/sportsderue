@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Equipment, EquipmentDetail } from '../types'
 import { fetchEquipmentDetail, officialRecordUrl } from '../lib/dataes'
-import { playgroundRecordUrl } from '../lib/overpass'
+import { playgroundRecordUrl, playgroundsDate } from '../lib/playgrounds'
 import { directionsUrl, formatDistance } from '../lib/geo'
 import { sameLabel } from '../lib/text'
 import { categoryStyle } from '../lib/sports'
@@ -39,15 +39,22 @@ const NATURE_LABEL: Record<string, string> = {
 export function EquipmentSheet({ equipment, onClose }: Props) {
   const [detail, setDetail] = useState<EquipmentDetail | null>(null)
   const [loading, setLoading] = useState(false)
+  // Date d'extraction d'OpenStreetMap : la donnée fige entre deux générations, il
+  // faut le dire plutôt que de laisser croire à du temps réel.
+  const [osmDate, setOsmDate] = useState<string | null>(null)
+
+  useEffect(() => {
+    void playgroundsDate().then(setOsmDate)
+  }, [])
 
   useEffect(() => {
     if (!equipment) {
       setDetail(null)
       return
     }
-    // Une aire de jeux arrive déjà complète : la réponse de liste d'Overpass porte
-    // toutes les étiquettes de l'objet, contrairement à Data ES qui n'en renvoie
-    // qu'un extrait et impose un second appel.
+    // Une aire de jeux arrive déjà complète : le fichier statique porte toutes ses
+    // étiquettes, contrairement à Data ES dont la liste n'est qu'un extrait et qui
+    // impose un second appel pour ouvrir une fiche.
     if (equipment.source === 'osm') {
       setDetail(equipment as EquipmentDetail)
       setLoading(false)
@@ -290,9 +297,9 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
               <>
                 <p>
                   Aire de jeux cartographiée par les contributeurs d’OpenStreetMap
-                  {detail?.updatedAt ? `, vérifiée le ${formatDate(detail.updatedAt)}` : ''}.
-                  Les équipements et la tranche d’âge ne sont pas toujours renseignés :
-                  vérifiez sur place.
+                  {detail?.updatedAt ? `, vérifiée le ${formatDate(detail.updatedAt)}` : ''}
+                  {osmDate ? `, relevée le ${formatDate(osmDate)}` : ''}. Les équipements
+                  et la tranche d’âge ne sont pas toujours renseignés : vérifiez sur place.
                 </p>
                 <a
                   href={playgroundRecordUrl(equipment.id)}
