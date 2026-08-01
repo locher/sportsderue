@@ -34,9 +34,11 @@ const CLIENT_TIMEOUT_MS = 25_000
 
 /**
  * Une seule reprise, après une courte pause. Les échecs observés sont des 504 de
- * passerelle et des « too busy » : le service tourne, c'est le répartiteur qui a
- * lâché, et la tentative suivante passe le plus souvent. On s'arrête là — insister
- * sur un service bénévole déjà saturé ne ferait qu'aggraver son état.
+ * passerelle, des « too busy » et des rejets réseau : le service tourne, c'est le
+ * répartiteur qui a lâché, et la tentative suivante passe le plus souvent. Mesuré
+ * en série sur une même vue : **trois échecs sur huit appels**. On s'arrête à une
+ * reprise — insister sur un service bénévole déjà saturé ne ferait qu'aggraver son
+ * état, et le 429 (quota de l'adresse IP) n'est justement jamais repris.
  */
 const RETRY_DELAY_MS = 1_500
 
@@ -279,7 +281,15 @@ async function attempt(query: string, signal?: AbortSignal): Promise<OverpassRes
   const controller = new AbortController()
   const abort = () => controller.abort()
   signal?.addEventListener('abort', abort)
-  const timer = window.setTimeout(abort, CLIENT_TIMEOUT_MS)
+
+  // Distinguer notre propre délai du reste : sans ce drapeau, un `fetch` rejeté en
+  // 200 ms était annoncé comme un dépassement de délai de 25 s. Le message envoyait
+  // alors chercher la panne exactement là où elle n'était pas.
+  let timedOut = false
+  const timer = window.setTimeout(() => {
+    timedOut = true
+    abort()
+  }, CLIENT_TIMEOUT_MS)
 
   let response: Response
   try {
@@ -289,9 +299,24 @@ async function attempt(query: string, signal?: AbortSignal): Promise<OverpassRes
       signal: controller.signal,
     })
   } catch (cause) {
-    // L'abandon demandé par l'appelant doit remonter tel quel ; le nôtre est un délai.
-    if (signal?.aborted) throw cause
-    throw new OverpassError('OpenStreetMap n’a pas répondu à temps pour les aires de jeux.')
+    // L'abandon demandé par l'appelant doit remonter tel quel : il est normal.
+    if (signal?.aborted && !timedOut) throw cause
+
+    if (timedOut) {
+      throw new OverpassError(
+        'OpenStreetMap n’a pas répondu à temps pour les aires de jeux.',
+        true,
+      )
+    }
+
+    // Le `fetch` a été rejeté sans que nous l'ayons interrompu : la requête n'est
+    // jamais partie, ou le navigateur a refusé la réponse. Depuis un téléphone, le
+    // message du navigateur est la seule piste exploitable — on le montre.
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    throw new OverpassError(
+      `Impossible de joindre OpenStreetMap pour les aires de jeux. Le navigateur répond : « ${detail} ».`,
+      true,
+    )
   } finally {
     window.clearTimeout(timer)
     signal?.removeEventListener('abort', abort)

@@ -284,9 +284,29 @@ Ce qu'il faut savoir avant d'y toucher :
   - `lit` et `wheelchair` : ceux-là ne pourraient **pas** être posés côté serveur sans
     mentir. Une aire sans étiquette `lit` n'est pas une aire non éclairée, elle est non
     renseignée — le filtre ferait passer une lacune de saisie pour une réponse.
+- **Les messages d'erreur doivent nommer la vraie cause.** Une première version affichait
+  « n'a pas répondu à temps » pour *tout* rejet du `fetch`, y compris ceux qui tombent en
+  200 ms. Signalé depuis un téléphone (« le message apparaît en moins de 3 secondes »), il
+  envoyait chercher la panne exactement là où elle n'était pas — j'ai perdu un aller-retour
+  entier à optimiser un délai qui n'était pas en cause. Un drapeau distingue désormais
+  notre propre minuterie du reste, et un rejet réseau **rapporte le message du navigateur**
+  (`Load failed`, `Failed to fetch`, `NetworkError…`) : depuis un mobile, c'est la seule
+  piste exploitable.
+- **Un rejet du `fetch` est repris**, comme les 504 et les « too busy ». Seul le 429 ne
+  l'est pas : c'est le quota de l'adresse IP, réessayer ne ferait que l'enfoncer.
 - **Le piège du relais Playwright** : Overpass répond **406** à `User-Agent: node`, celui
   que Node met par défaut. Le relais doit réexpédier les en-têtes du navigateur. Ce n'est
-  pas un bug de l'application — un vrai navigateur passe.
+  pas un bug de l'application — un vrai navigateur passe. Attention aussi : `route.fulfill()`
+  fabrique la réponse **dans** le navigateur, donc le CORS et la couche réseau ne sont
+  jamais exercés. Ce montage ne peut pas valider un appel inter-origine, et le navigateur
+  du conteneur n'a pas de réseau sortant pour le faire (`ERR_CONNECTION_RESET`, même avec
+  `--proxy-server`).
+- **Les miroirs restent inutilisables**, même avec la requête rapide (retesté) :
+  `private.coffee` 28 s et des données vieilles de deux mois, `kumi.systems` 504 après
+  64 s, `osm.ch` et `osm.jp` sont des extraits régionaux (0 objet en France).
+- **Taux d'échec brut mesuré sur l'instance principale : 3 sur 8** (504, 429, 504) en
+  série sur une même vue parisienne. C'est l'ordre de grandeur avec lequel il faut
+  composer — d'où la reprise et l'échec en avertissement.
 - Nom et type sont volontairement **identiques** (`Aire de jeux`) quand OSM n'a pas de nom,
   ce qui est le cas trois fois sur quatre : `sameLabel()` (`src/lib/text.ts`) évite alors
   d'écrire deux fois la même ligne dans la liste et dans le bandeau de la fiche.
