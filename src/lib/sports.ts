@@ -56,7 +56,12 @@ export interface SportCategory {
   /** Libellé court pour les puces de filtre. */
   short: string
   emoji: string
+  /** Couleur d'identité : épingles, halos, pastilles. */
   color: string
+  /** Variante lumineuse, pour les dégradés et les lueurs. */
+  vivid: string
+  /** Variante sombre : contraste ≥ 4,5:1 avec du texte blanc. */
+  deep: string
   group: CategoryGroup
   /** Valeurs exactes de `equip_type_name` : ce que l'équipement est. */
   types: string[]
@@ -76,6 +81,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'City-stade',
     emoji: '🥅',
     color: '#0f7b5f',
+    vivid: '#0A9974',
+    deep: '#0F7B5F',
     group: 'urbain',
     types: ['Multisports/City-stades', 'Terrain mixte'],
     sports: ['Multisports/sport pour tous'],
@@ -87,6 +94,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Basket',
     emoji: '🏀',
     color: '#e2681a',
+    vivid: '#F3792B',
+    deep: '#BD5411',
     group: 'urbain',
     types: [
       'Terrain de basket-ball',
@@ -102,6 +111,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Foot',
     emoji: '⚽',
     color: '#1f7a3d',
+    vivid: '#1E9646',
+    deep: '#1F7A3D',
     group: 'urbain',
     types: [
       'Terrain de football',
@@ -118,6 +129,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Ping-pong',
     emoji: '🏓',
     color: '#c2185b',
+    vivid: '#EF1269',
+    deep: '#C2185B',
     group: 'urbain',
     // Les tables extérieures n'ont pas de `equip_type_name` dédié (elles sont classées en
     // « Autres équipements divers » ou rattachées à un city-stade) : cette catégorie
@@ -132,6 +145,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Tennis',
     emoji: '🎾',
     color: '#8a9b0f',
+    vivid: '#AAC108',
+    deep: '#6B7809',
     group: 'urbain',
     types: ['Court de tennis', 'Mur de tennis', 'Piste de padel'],
     sports: ['Tennis', 'Padel', 'Pickleball'],
@@ -143,6 +158,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Skate',
     emoji: '🛹',
     color: '#6d28d9',
+    vivid: '#7B37E7',
+    deep: '#6D28D9',
     group: 'urbain',
     types: [
       'Skatepark',
@@ -176,6 +193,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Fitness',
     emoji: '💪',
     color: '#0d6efd',
+    vivid: '#1F79FF',
+    deep: '#0B62E8',
     group: 'urbain',
     types: ['Aire de fitness/street workout', 'Parcours sportif/santé', "Parcours d'initiation"],
     sports: ['Activités de forme et de santé', 'Musculation'],
@@ -186,7 +205,10 @@ export const CATEGORIES: SportCategory[] = [
     label: 'Pétanque / Boules',
     short: 'Pétanque',
     emoji: '🎱',
-    color: '#7c6f5a',
+    // Ocre de terrain sablé : plus lisible qu'un taupe sur le fond de carte.
+    color: '#a87c32',
+    vivid: '#C79433',
+    deep: '#8A6520',
     group: 'urbain',
     types: [
       'Terrain de pétanque',
@@ -208,6 +230,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Volley',
     emoji: '🏐',
     color: '#d4a017',
+    vivid: '#F3BA22',
+    deep: '#926D0C',
     group: 'urbain',
     types: ['Terrain de volley-ball', 'Terrain de beach-volley'],
     sports: ['Volley-ball / Volley-ball de plage (beach-volley) / Green-Volley'],
@@ -219,6 +243,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Hand',
     emoji: '🤾',
     color: '#0e7490',
+    vivid: '#078EB3',
+    deep: '#0E7490',
     group: 'urbain',
     types: ['Terrain de handball'],
     sports: ['Handball / Mini hand / Handball de plage'],
@@ -230,6 +256,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Rugby',
     emoji: '🏉',
     color: '#8c2f39',
+    vivid: '#AC313E',
+    deep: '#8C2F39',
     group: 'urbain',
     types: ['Terrain de rugby'],
     sports: ['Rugby à 15 / Rugby à 7', 'Rugby à 13 / Rugby à 7'],
@@ -241,6 +269,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Athlé',
     emoji: '🏃',
     color: '#b4530a',
+    vivid: '#E06000',
+    deep: '#B4530A',
     group: 'urbain',
     types: [
       "Piste d'athlétisme isolée",
@@ -266,6 +296,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Fronton',
     emoji: '🧱',
     color: '#a8324a',
+    vivid: '#CD3453',
+    deep: '#A8324A',
     group: 'urbain',
     types: [
       'Fronton place libre',
@@ -293,6 +325,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Vélo',
     emoji: '🚴',
     color: '#0891b2',
+    vivid: '#00B1DB',
+    deep: '#037F9D',
     group: 'urbain',
     types: ['Anneau / piste de cyclisme', 'Terrain de cyclocross', 'Piste de descente'],
     sports: [
@@ -309,6 +343,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Rando',
     emoji: '🥾',
     color: '#4d7c0f',
+    vivid: '#5C9A0A',
+    deep: '#4D7C0F',
     group: 'nature',
     types: ['Boucle de randonnée', 'Parcours fixe de course d’orientation', 'Relais rando-vélo'],
     sports: [
@@ -327,6 +363,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Escalade',
     emoji: '🧗',
     color: '#78350f',
+    vivid: '#953C0A',
+    deep: '#78350F',
     group: 'nature',
     types: [
       "Site d'escalade en falaise",
@@ -343,6 +381,8 @@ export const CATEGORIES: SportCategory[] = [
     short: 'Baignade',
     emoji: '🏊',
     color: '#0369a1',
+    vivid: '#007DC2',
+    deep: '#0369A1',
     group: 'nature',
     types: [
       'Baignade aménagée',
@@ -441,4 +481,28 @@ export function isCategoryId(value: string): value is CategoryId {
 /** Couleur et emoji d'une catégorie, avec repli. */
 export function categoryStyle(id: CategoryId | string): SportCategory {
   return CATEGORY_BY_ID[id as CategoryId] ?? CATEGORY_BY_ID[FALLBACK_CATEGORY]
+}
+
+const INK = '#141a17'
+const WHITE = '#ffffff'
+
+function relativeLuminance(hex: string): number {
+  const value = hex.replace('#', '')
+  const channel = (offset: number) => {
+    const c = parseInt(value.slice(offset, offset + 2), 16) / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
+}
+
+/**
+ * Texte lisible sur un aplat de couleur : encre sur les tons clairs, blanc sur les
+ * tons sombres. Les pastilles de sport peuvent ainsi rester vives — un jaune de
+ * volley comme un violet de skate — sans jamais perdre en lisibilité.
+ */
+export function readableOn(background: string): string {
+  const luminance = relativeLuminance(background)
+  const withInk = (luminance + 0.05) / (relativeLuminance(INK) + 0.05)
+  const withWhite = 1.05 / (luminance + 0.05)
+  return withInk >= withWhite ? INK : WHITE
 }

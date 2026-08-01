@@ -2,7 +2,8 @@
 """Génère les icônes PNG de la PWA (aucune dépendance : encodeur PNG minimal).
 
 Le dessin est vectoriel puis rendu par sur-échantillonnage x4 pour l'anticrénelage :
-une épingle blanche sur fond vert, arrondie comme une icône d'application.
+une épingle lime pleine sur une plaque encre presque noire, arrondie comme une
+icône d'application.
 
 Usage : python3 scripts/generate-icons.py
 """
@@ -17,9 +18,9 @@ ROOT = Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "public"
 ICONS = PUBLIC / "icons"
 
-BRAND = (15, 123, 95)
-BRAND_DARK = (10, 91, 70)
-WHITE = (255, 255, 255)
+PLATE_TOP = (26, 34, 30)
+PLATE_BOTTOM = (13, 18, 15)
+LIME = (214, 251, 79)
 
 SS = 4  # facteur de sur-échantillonnage
 
@@ -114,10 +115,13 @@ def render(size: int, maskable: bool) -> list[list[tuple[int, int, int, int]]]:
             # Léger dégradé vertical du fond, pour ne pas paraître plat.
             mix = py / max(1, size - 1)
             bg = tuple(
-                round(BRAND[i] + (BRAND_DARK[i] - BRAND[i]) * mix) for i in range(3)
+                round(PLATE_TOP[i] + (PLATE_BOTTOM[i] - PLATE_TOP[i]) * mix)
+                for i in range(3)
             )
             weight = ink / total
-            color = tuple(round(bg[i] + (WHITE[i] - bg[i]) * min(1.0, weight * 1.0)) for i in range(3))
+            color = tuple(
+                round(bg[i] + (LIME[i] - bg[i]) * min(1.0, weight)) for i in range(3)
+            )
             row.append((color[0], color[1], color[2], alpha))
         rows.append(row)
     return rows
@@ -126,9 +130,9 @@ def render(size: int, maskable: bool) -> list[list[tuple[int, int, int, int]]]:
 def favicon_svg() -> str:
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-        '<rect width="64" height="64" rx="15" fill="#0f7b5f"/>'
-        '<path d="M32 13a11 11 0 0 0-11 11c0 8 11 20 11 20s11-12 11-20a11 11 0 0 0-11-11Z" fill="#fff"/>'
-        '<circle cx="32" cy="24" r="4" fill="#0f7b5f"/>'
+        '<rect width="64" height="64" rx="15" fill="#141a17"/>'
+        '<path d="M32 13a11 11 0 0 0-11 11c0 8 11 20 11 20s11-12 11-20a11 11 0 0 0-11-11Z" fill="#d6fb4f"/>'
+        '<circle cx="32" cy="24" r="4" fill="#141a17"/>'
         "</svg>\n"
     )
 

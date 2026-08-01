@@ -8,13 +8,15 @@ interface Props {
   children: React.ReactNode
   /** Contenu épinglé en bas (boutons d'action). */
   footer?: React.ReactNode
+  /** Bandeau coloré affiché à la place de l'en-tête blanc standard. */
+  hero?: React.ReactNode
 }
 
 /**
  * Feuille modale ancrée en bas d'écran : le geste naturel sur mobile.
  * Fermeture par la poignée, le bouton, l'arrière-plan ou la touche Échap.
  */
-export function BottomSheet({ open, title, onClose, children, footer }: Props) {
+export function BottomSheet({ open, title, onClose, children, footer, hero }: Props) {
   const panel = useRef<HTMLDivElement>(null)
   const drag = useRef<{ startY: number; offset: number } | null>(null)
 
@@ -65,7 +67,7 @@ export function BottomSheet({ open, title, onClose, children, footer }: Props) {
         aria-label="Fermer"
         tabIndex={open ? 0 : -1}
         onClick={onClose}
-        className="absolute inset-0 bg-ink/35 backdrop-blur-[1px]"
+        className="absolute inset-0 bg-ink/45 backdrop-blur-[2px]"
       />
       <div
         ref={panel}
@@ -73,35 +75,42 @@ export function BottomSheet({ open, title, onClose, children, footer }: Props) {
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className={`relative flex max-h-[88dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-sheet outline-none transition-transform duration-250 ease-out sm:mb-4 sm:rounded-3xl ${
+        className={`relative flex max-h-[90dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-[34px] bg-white shadow-sheet outline-none transition-transform duration-400 ease-[var(--ease-spring)] sm:mb-4 sm:rounded-[34px] ${
           open ? 'translate-y-0' : 'translate-y-full'
         }`}
       >
         <div
-          className="shrink-0 cursor-grab touch-none px-4 pt-2 pb-1 active:cursor-grabbing"
+          className="absolute inset-x-0 top-0 z-10 cursor-grab touch-none px-4 pt-2.5 pb-3 active:cursor-grabbing"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         >
-          <div className="mx-auto h-1.5 w-11 rounded-full bg-line" />
+          <div
+            className={`mx-auto h-1.5 w-12 rounded-full ${hero ? 'bg-white/50' : 'bg-line'}`}
+          />
         </div>
 
-        <div className="flex shrink-0 items-start gap-3 px-4 pb-2">
-          <h2 className="min-w-0 flex-1 pt-1 text-lg leading-snug font-semibold text-balance">
-            {title}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Fermer"
-            className="-mr-1 grid size-9 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-canvas active:bg-line"
-          >
-            <CloseIcon />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Fermer"
+          className={`springy absolute top-4 right-3 z-10 grid size-9 shrink-0 place-items-center rounded-full ${
+            hero ? 'bg-white/25 text-white' : 'bg-canvas text-muted'
+          }`}
+        >
+          <CloseIcon className="size-5" />
+        </button>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4">
+        {hero ?? (
+          <div className="shrink-0 px-4 pt-8 pr-14 pb-2">
+            <h2 className="display min-w-0 flex-1 text-[22px] leading-tight text-balance">
+              {title}
+            </h2>
+          </div>
+        )}
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-3 pb-4">
           {children}
         </div>
 

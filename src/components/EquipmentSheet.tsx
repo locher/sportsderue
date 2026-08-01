@@ -13,7 +13,6 @@ import {
   RulerIcon,
   ShareIcon,
   Spinner,
-  TreeIcon,
   WalkIcon,
 } from './Icons'
 
@@ -21,6 +20,9 @@ interface Props {
   equipment: Equipment | null
   onClose: () => void
 }
+
+/** Teintes des tuiles de chiffres clés : lime, ciel, abricot. */
+const STAT_TINTS = ['#d6fb4f', '#c3e5ff', '#ffdcc4']
 
 const NATURE_LABEL: Record<string, string> = {
   Découvert: 'Plein air',
@@ -59,6 +61,13 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
         .filter(Boolean)
         .join(', ')
     : ''
+  // Le bandeau porte déjà le nom et le type : la ligne de contexte complète l'adresse.
+  // Beaucoup d'installations ne diffèrent de l'équipement que par la ponctuation
+  // (« Le Plan - Montesquieu » / « Le Plan Montesquieu ») : on ne les répète pas.
+  const subtitle =
+    equipment?.installation && !sameLabel(equipment.installation, equipment.name)
+      ? equipment.installation
+      : (detail?.department ?? equipment?.city ?? '')
 
   const share = async () => {
     if (!equipment) return
@@ -76,23 +85,29 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
     }
   }
 
-  const facts: { icon: React.ReactNode; label: string; value: string }[] = []
-  if (equipment?.nature) {
-    facts.push({
-      icon: <TreeIcon />,
-      label: 'Nature',
-      value: NATURE_LABEL[equipment.nature] ?? equipment.nature,
-    })
+  // Les trois chiffres clés passent en tuiles colorées ; le reste va dans la grille
+  // de caractéristiques, plus dense.
+  const stats: { value: string; label: string }[] = []
+  if (equipment?.distance !== undefined) {
+    stats.push({ value: formatDistance(equipment.distance), label: 'à vol d’oiseau' })
   }
-  if (detail?.floor) facts.push({ icon: <RulerIcon />, label: 'Revêtement', value: detail.floor })
+  if (equipment?.nature) {
+    stats.push({ value: NATURE_LABEL[equipment.nature] ?? equipment.nature, label: 'Nature' })
+  }
+  if (detail?.floor) stats.push({ value: detail.floor, label: 'Revêtement' })
   if (detail?.length && detail?.width) {
-    facts.push({
-      icon: <RulerIcon />,
+    stats.push({
+      value: `${formatMeasure(detail.length)} × ${formatMeasure(detail.width)} m`,
       label: 'Dimensions',
-      value: `${detail.length} × ${detail.width} m`,
     })
   } else if (detail?.surface) {
-    facts.push({ icon: <RulerIcon />, label: 'Surface', value: `${detail.surface} m²` })
+    stats.push({ value: `${formatMeasure(detail.surface)} m²`, label: 'Surface' })
+  }
+  const keyStats = stats.slice(0, 3)
+
+  const facts: { icon: React.ReactNode; label: string; value: string }[] = []
+  for (const extra of stats.slice(3)) {
+    facts.push({ icon: <RulerIcon />, label: extra.label, value: extra.value })
   }
   if (equipment?.lit) facts.push({ icon: <BulbIcon />, label: 'Éclairage', value: 'Oui' })
   if (equipment?.accessible) {
@@ -108,6 +123,46 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
       open={equipment !== null}
       title={equipment?.name ?? ''}
       onClose={onClose}
+      hero={
+        equipment && (
+          <div
+            className="relative shrink-0 px-5 pt-8 pb-5 text-white"
+            style={{ backgroundColor: category?.deep ?? '#0a8552' }}
+          >
+            <div className="flex items-start gap-3 pr-12">
+              <span
+                aria-hidden="true"
+                className="grid size-14 shrink-0 place-items-center rounded-[19px] text-3xl"
+                style={{ backgroundColor: 'rgb(255 255 255 / 0.18)' }}
+              >
+                {category?.emoji}
+              </span>
+              <div className="min-w-0 pt-1">
+                {/* Beaucoup de fiches sont nommées d'après leur type : on affiche
+                    alors la famille de sport plutôt que la même phrase deux fois. */}
+                <p className="eyebrow text-white/70">
+                  {sameLabel(equipment.type, equipment.name)
+                    ? (category?.label ?? equipment.type)
+                    : equipment.type}
+                </p>
+                <h2 className="display mt-2 text-[23px] leading-[1.12] text-balance">
+                  {equipment.name}
+                </h2>
+              </div>
+            </div>
+            <p className="mt-4 flex flex-wrap gap-2">
+              <span className="flex items-center gap-1.5 rounded-full bg-lime px-3 py-1.5 text-[13px] font-extrabold text-ink">
+                <WalkIcon className="size-4" /> Accès libre
+              </span>
+              {detail?.seasonal && (
+                <span className="rounded-full bg-white/20 px-3 py-1.5 text-[13px] font-bold">
+                  Ouverture saisonnière
+                </span>
+              )}
+            </p>
+          </div>
+        )
+      }
       footer={
         equipment && (
           <div className="flex gap-2">
@@ -115,15 +170,15 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
               href={directionsUrl(equipment, equipment.name)}
               target="_blank"
               rel="noreferrer"
-              className="flex flex-1 items-center justify-center gap-2 rounded-full bg-brand px-4 py-3 font-semibold text-white active:bg-brand-dark"
+              className="springy flex flex-1 items-center justify-center gap-2 rounded-full bg-lime px-4 py-4 font-extrabold text-ink shadow-lift"
             >
-              <RouteIcon /> Itinéraire
+              <RouteIcon /> On y va
             </a>
             <button
               type="button"
               onClick={() => void share()}
               aria-label="Partager cet équipement"
-              className="grid size-12 shrink-0 place-items-center rounded-full border border-line text-ink active:bg-canvas"
+              className="springy grid size-14 shrink-0 place-items-center rounded-full bg-canvas text-ink"
             >
               <ShareIcon />
             </button>
@@ -133,58 +188,44 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
     >
       {equipment && (
         <div className="space-y-4 pb-2">
-          <div className="flex items-center gap-3">
-            <span
-              aria-hidden="true"
-              className="grid size-12 shrink-0 place-items-center rounded-2xl text-2xl"
-              style={{ backgroundColor: `${category?.color ?? '#0f7b5f'}1a` }}
-            >
-              {category?.emoji}
-            </span>
-            <div className="min-w-0">
-              <p className="font-medium">{equipment.type}</p>
-              <p className="text-sm text-muted">
-                {equipment.installation && equipment.installation !== equipment.name
-                  ? equipment.installation
-                  : (detail?.department ?? equipment.city ?? '')}
-              </p>
-            </div>
-          </div>
+          {/* Chiffres clés en tuiles pleines : ce qu'on veut savoir avant de partir. */}
+          {keyStats.length > 0 && (
+            <dl className="grid auto-cols-fr grid-flow-col gap-2">
+              {keyStats.map((stat, index) => (
+                <div
+                  key={stat.label}
+                  className="rounded-[22px] p-3.5"
+                  style={{ backgroundColor: STAT_TINTS[index % STAT_TINTS.length] }}
+                >
+                  <dd className="display text-lg leading-tight tabular-nums">{stat.value}</dd>
+                  <dt className="mt-1 text-[11px] leading-tight font-semibold text-ink/60">
+                    {stat.label}
+                  </dt>
+                </div>
+              ))}
+            </dl>
+          )}
 
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-full bg-brand-light px-3 py-1 text-sm font-medium text-brand-dark">
-              Accès libre
-            </span>
-            {equipment.distance !== undefined && (
-              <span className="flex items-center gap-1 rounded-full bg-canvas px-3 py-1 text-sm text-ink">
-                <WalkIcon className="size-4" /> {formatDistance(equipment.distance)} à vol
-                d’oiseau
+          {(address || subtitle) && (
+            <p className="flex items-start gap-2.5 rounded-[22px] bg-canvas p-4 text-sm leading-relaxed">
+              <PinIcon className="mt-0.5 size-4.5 shrink-0 text-ink" />
+              <span>
+                <span className="font-semibold">{address || subtitle}</span>
+                {address && subtitle && (
+                  <span className="mt-0.5 block text-muted">{subtitle}</span>
+                )}
               </span>
-            )}
-            {detail?.seasonal && (
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-sm text-amber-900">
-                Ouverture saisonnière
-              </span>
-            )}
-          </div>
-
-          {address && (
-            <p className="flex items-start gap-2 text-sm leading-relaxed">
-              <PinIcon className="mt-0.5 size-4.5 shrink-0 text-muted" />
-              <span>{address}</span>
             </p>
           )}
 
           {equipment.sports.length > 0 && (
             <div>
-              <h3 className="mb-2 text-sm font-semibold tracking-wide text-muted uppercase">
-                Activités praticables
-              </h3>
+              <h3 className="eyebrow mb-2.5 text-muted">Activités praticables</h3>
               <ul className="flex flex-wrap gap-1.5">
                 {equipment.sports.slice(0, 12).map((sport) => (
                   <li
                     key={sport}
-                    className="rounded-lg bg-canvas px-2 py-1 text-sm text-ink"
+                    className="rounded-full bg-canvas px-3 py-1.5 text-[13px] leading-snug font-semibold text-ink"
                   >
                     {sport}
                   </li>
@@ -202,20 +243,20 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
           {facts.length > 0 && (
             <dl className="grid grid-cols-2 gap-2">
               {facts.map((fact) => (
-                <div key={fact.label} className="rounded-2xl border border-line p-3">
-                  <dt className="flex items-center gap-1.5 text-xs text-muted">
-                    <span className="text-muted [&_svg]:size-4">{fact.icon}</span>
+                <div key={fact.label} className="rounded-[22px] bg-canvas p-3.5">
+                  <dt className="flex items-center gap-1.5 text-xs font-semibold text-muted">
+                    <span className="text-ink [&_svg]:size-4">{fact.icon}</span>
                     {fact.label}
                   </dt>
-                  <dd className="mt-0.5 text-sm font-medium">{fact.value}</dd>
+                  <dd className="mt-1 text-sm font-bold">{fact.value}</dd>
                 </div>
               ))}
             </dl>
           )}
 
           {detail?.notes && (
-            <p className="rounded-2xl bg-canvas p-3 text-sm leading-relaxed">
-              <span className="font-medium">Observations : </span>
+            <p className="rounded-[22px] bg-canvas p-4 text-sm leading-relaxed">
+              <span className="font-bold">Observations : </span>
               {detail.notes}
             </p>
           )}
@@ -227,7 +268,7 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
             </p>
           )}
 
-          <div className="space-y-1 border-t border-line pt-3 text-xs leading-relaxed text-muted">
+          <div className="space-y-1.5 border-t border-line pt-3.5 text-xs leading-relaxed text-muted">
             <p>
               Données déclaratives du Recensement des équipements sportifs (RES)
               {detail?.updatedAt ? `, mises à jour le ${formatDate(detail.updatedAt)}` : ''}.
@@ -237,7 +278,7 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
               href={officialRecordUrl(equipment.id)}
               target="_blank"
               rel="noreferrer"
-              className="inline-block font-medium text-brand underline"
+              className="inline-block font-bold text-ink underline decoration-lime decoration-2 underline-offset-2"
             >
               Voir la fiche officielle ({equipment.id})
             </a>
@@ -246,6 +287,21 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
       )}
     </BottomSheet>
   )
+}
+
+/** Mesure en notation française : « 19,5 » et non « 19.5 ». */
+function formatMeasure(value: number): string {
+  return value.toLocaleString('fr-FR', { maximumFractionDigits: 1 })
+}
+
+/** Deux libellés qui ne diffèrent que par la ponctuation ou la casse. */
+function sameLabel(a: string, b: string): boolean {
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[^\p{Letter}\p{Number}]+/gu, '')
+  return normalize(a) === normalize(b)
 }
 
 function formatDate(iso: string): string {

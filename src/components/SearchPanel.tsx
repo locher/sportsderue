@@ -80,7 +80,7 @@ export function SearchPanel({ open, onClose, onPick, onLocate, locating }: Props
       aria-label="Rechercher un lieu"
     >
       <form
-        className="flex items-center gap-2 border-b border-line px-3 py-2"
+        className="flex items-center gap-2 px-3 py-2.5"
         onSubmit={(event) => {
           event.preventDefault()
           if (results[0]) onPick(results[0])
@@ -90,12 +90,12 @@ export function SearchPanel({ open, onClose, onPick, onLocate, locating }: Props
           type="button"
           onClick={onClose}
           aria-label="Fermer la recherche"
-          className="grid size-10 shrink-0 place-items-center rounded-full text-muted active:bg-canvas"
+          className="springy grid size-12 shrink-0 place-items-center rounded-full bg-canvas text-ink"
         >
           <CloseIcon />
         </button>
-        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-canvas px-3.5 py-2.5">
-          <SearchIcon className="size-5 shrink-0 text-muted" />
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-full bg-canvas px-4 py-3">
+          <SearchIcon className="size-5 shrink-0 text-ink" />
           <input
             ref={input}
             type="search"
@@ -105,43 +105,52 @@ export function SearchPanel({ open, onClose, onPick, onLocate, locating }: Props
             autoComplete="off"
             placeholder="Ville, quartier, adresse…"
             aria-label="Ville, quartier ou adresse"
-            className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted"
+            className="min-w-0 flex-1 bg-transparent text-base font-medium outline-none placeholder:font-normal placeholder:text-muted"
           />
           {loading && <Spinner className="size-4 shrink-0 animate-spin text-muted" />}
         </div>
       </form>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button
           type="button"
           onClick={onLocate}
-          className="flex w-full items-center gap-3 border-b border-line px-4 py-3.5 text-left active:bg-canvas"
+          className="springy flex w-full items-center gap-3 rounded-[26px] bg-lime p-3 text-left text-ink"
         >
-          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-light text-brand">
-            {locating ? <Spinner className="size-4 animate-spin" /> : <LocateIcon />}
+          <span className="grid size-12 shrink-0 place-items-center rounded-[17px] bg-ink text-lime">
+            {locating ? <Spinner className="size-5 animate-spin" /> : <LocateIcon />}
           </span>
-          <span className="font-medium">Autour de moi</span>
+          <span className="min-w-0 flex-1">
+            <span className="display block text-lg">Autour de moi</span>
+            <span className="block text-sm font-medium text-ink/70">
+              Les spots les plus proches, tout de suite
+            </span>
+          </span>
         </button>
 
-        {error && <p className="px-4 py-4 text-sm text-red-700">{error}</p>}
-
-        {!error && query.trim().length >= 2 && !loading && results.length === 0 && (
-          <p className="px-4 py-6 text-sm text-muted">Aucun lieu trouvé pour « {query} ».</p>
+        {error && (
+          <p className="mt-3 rounded-2xl bg-flame/10 px-4 py-3 text-sm font-medium">{error}</p>
         )}
 
-        <ul>
+        {!error && query.trim().length >= 2 && !loading && results.length === 0 && (
+          <p className="px-2 py-8 text-center text-sm text-muted">
+            Aucun lieu trouvé pour « {query} ».
+          </p>
+        )}
+
+        <ul className="mt-2 space-y-0.5">
           {results.map((place) => (
             <li key={place.id}>
               <button
                 type="button"
                 onClick={() => onPick(place)}
-                className="flex w-full items-center gap-3 border-b border-line px-4 py-3 text-left active:bg-canvas"
+                className="flex w-full items-center gap-3 rounded-[18px] p-2.5 text-left transition-colors active:bg-canvas"
               >
-                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-canvas text-muted">
-                  <PinIcon className="size-4.5" />
+                <span className="grid size-10 shrink-0 place-items-center rounded-full bg-canvas text-ink">
+                  <PinIcon className="size-5" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{place.label}</span>
+                  <span className="block truncate font-semibold">{place.label}</span>
                   <span className="block truncate text-sm text-muted">
                     {KIND_LABEL[place.kind]}
                     {place.context ? ` · ${place.context}` : ''}
@@ -153,9 +162,9 @@ export function SearchPanel({ open, onClose, onPick, onLocate, locating }: Props
         </ul>
 
         {query.trim().length < 2 && (
-          <p className="px-4 py-6 text-sm leading-relaxed text-muted">
-            Cherchez une commune pour explorer ses équipements sportifs en accès libre, ou
-            utilisez votre position.
+          <p className="px-2 py-8 text-center text-sm leading-relaxed text-muted">
+            Cherchez une commune pour découvrir ses city-stades, skateparks et autres terrains
+            en accès libre.
           </p>
         )}
       </div>
