@@ -38,13 +38,16 @@ export function useEquipments({ bbox, zoom, filters, origin }: Options): Equipme
   const [nonce, setNonce] = useState(0)
 
   const zoomedOut = zoom < MIN_ZOOM_FOR_DATA
+  // Toutes les catégories décochées : la réponse est vide par construction, on épargne
+  // un appel à l'API (et son quota).
+  const empty = filters.categories.length === 0
   const key = filtersKey(filters)
   const query = bbox && !zoomedOut ? bboxKey(padBbox(bbox)) : null
 
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    if (!bbox || zoomedOut) {
+    if (!bbox || zoomedOut || empty) {
       abortRef.current?.abort()
       setLoading(false)
       setItems([])
@@ -104,7 +107,7 @@ export function useEquipments({ bbox, zoom, filters, origin }: Options): Equipme
     }
     // `query` résume l'emprise arrondie et `key` les filtres : on ne relance pas la
     // requête pour un déplacement de quelques mètres.
-  }, [query, key, zoomedOut, nonce])
+  }, [query, key, zoomedOut, empty, nonce])
 
   const sorted = useMemo(() => {
     if (!origin) return items

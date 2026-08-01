@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Equipment } from '../types'
-import { categoryStyle } from '../lib/sports'
+import { categoryStyle, practicableMatches, type CategoryId } from '../lib/sports'
 import { formatDistance } from '../lib/geo'
 import { useViewportHeight } from '../hooks/useViewportHeight'
 import { AccessibleIcon, BulbIcon, ChevronIcon } from './Icons'
@@ -16,6 +16,8 @@ interface Props {
   total: number | null
   zoomedOut: boolean
   areaLabel: string
+  /** Catégories cochées, pour expliquer les résultats trouvés via une activité. */
+  activeCategories: CategoryId[]
   selectedId: string | null
   onSelect: (id: string) => void
   onRetry: () => void
@@ -33,6 +35,7 @@ export function ResultsPanel({
   total,
   zoomedOut,
   areaLabel,
+  activeCategories,
   selectedId,
   onSelect,
   onRetry,
@@ -227,6 +230,7 @@ export function ResultsPanel({
             >
               <EquipmentRow
                 item={item}
+                activeCategories={activeCategories}
                 selected={item.id === selectedId}
                 onClick={() => {
                   expand()
@@ -278,15 +282,24 @@ function EmptyState({
 
 function EquipmentRow({
   item,
+  activeCategories,
   selected,
   onClick,
 }: {
   item: Equipment
+  activeCategories: CategoryId[]
   selected: boolean
   onClick: () => void
 }) {
   const category = categoryStyle(item.category)
   const place = [item.city, item.postcode].filter(Boolean).join(' · ')
+
+  // Un city-stade remonté par le filtre « Basket » n'est pas un terrain de basket : on
+  // dit pourquoi il est là. Inutile si sa propre catégorie est cochée — sa présence va
+  // alors de soi.
+  const practicable = activeCategories.includes(item.category)
+    ? []
+    : practicableMatches(item, activeCategories).slice(0, 3)
 
   return (
     <button
@@ -313,6 +326,19 @@ function EquipmentRow({
           {item.type}
           {place ? ` · ${place}` : ''}
         </span>
+        {practicable.length > 0 && (
+          <span className="mt-1 flex flex-wrap items-center gap-1">
+            {practicable.map((match) => (
+              <span
+                key={match.id}
+                className="rounded-full px-1.5 py-0.5 text-xs font-medium"
+                style={{ backgroundColor: `${match.color}1a`, color: match.color }}
+              >
+                <span aria-hidden="true">{match.emoji}</span> {match.short} praticable
+              </span>
+            ))}
+          </span>
+        )}
         {(item.lit || item.accessible) && (
           <span className="mt-1.5 flex items-center gap-1.5">
             {item.lit && (
