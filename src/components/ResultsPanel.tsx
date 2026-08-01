@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Equipment } from '../types'
-import { categoryStyle, practicableMatches, type CategoryId } from '../lib/sports'
+import { categoryStyle, practicableMatches, readableOn, type CategoryId } from '../lib/sports'
 import { formatDistance } from '../lib/geo'
 import { useViewportHeight } from '../hooks/useViewportHeight'
 import { AccessibleIcon, BulbIcon, ChevronIcon } from './Icons'
@@ -327,12 +327,15 @@ function EquipmentRow({
           {place ? ` · ${place}` : ''}
         </span>
         {practicable.length > 0 && (
-          <span className="mt-1 flex flex-wrap items-center gap-1">
+          <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {practicable.map((match) => (
               <span
                 key={match.id}
-                className="rounded-full px-1.5 py-0.5 text-xs font-medium"
-                style={{ backgroundColor: `${match.color}1a`, color: match.color }}
+                className="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                style={{
+                  backgroundColor: match.vivid,
+                  color: readableOn(match.vivid),
+                }}
               >
                 <span aria-hidden="true">{match.emoji}</span> {match.short} praticable
               </span>

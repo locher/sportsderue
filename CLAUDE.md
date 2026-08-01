@@ -20,8 +20,8 @@ soit installable comme une application, et que ça reste gratuit à héberger.
   (`fetchEquipmentsInBbox`, `outdoorOnly`…), les champs de l'API gardent leurs noms
   d'origine (`equip_type_name`).
 - Apostrophes typographiques (`’`) dans les textes affichés.
-- Tailwind v4, jetons de thème dans `@theme` (`src/index.css`). Couleur de marque
-  `#0f7b5f`. Pas de mode sombre : carte claire assumée.
+- Tailwind v4, jetons de thème dans `@theme` (`src/index.css`). Voir « La charte visuelle »
+  pour la palette. Pas de mode sombre : interface et carte claires assumées.
 - Icônes : SVG en ligne dans `Icons.tsx`, aucune dépendance d'icônes.
 - Commits en français, corps expliquant le *pourquoi*. Pas de pull request sans demande
   explicite.
@@ -44,6 +44,80 @@ soit installable comme une application, et que ça reste gratuit à héberger.
   est un droit d'administrateur qu'un jeton de workflow n'a pas), et Pages sur un dépôt
   privé exige un compte GitHub Pro. Ne pas s'acharner dessus : c'est connu et accepté. Il
   fonctionnera tel quel si Pages est activé à la main ou si le dépôt passe en public.
+
+## La charte visuelle
+
+Refondue en août 2026. La version précédente — vert institutionnel, rayons courts, boutons
+en dégradé — faisait daté. Le principe tient en une phrase : **trois matières seulement,
+aucun dégradé, et la couleur restante appartient aux sports**.
+
+- `--color-ink` `#141a17` (encre presque noire), le blanc, `--color-canvas` `#f1f4ee` pour
+  les cartes posées sur du blanc, et `--color-lime` `#d6fb4f` comme unique accent.
+- **Pas de dégradé, nulle part.** C'est le repère principal : un `linear-gradient` sur un
+  bouton ou un bandeau et l'interface reprend dix ans. Les aplats font le travail.
+- Rayons larges et assumés : feuilles `40 px`, cartes `26 px`, tuiles `22 px`, boutons
+  ronds. En dessous de `20 px`, ça cesse de fonctionner.
+- Ombres douces et rares (`--shadow-float`, `--shadow-sheet`, `--shadow-lift`) : elles
+  détachent du fond de carte, elles ne créent pas de relief.
+- Typographie **Archivo Variable**, auto-hébergée depuis `src/assets/fonts` (deux
+  sous-ensembles latins, ~90 ko chacun, copiés de `@fontsource-variable/archivo`). Les
+  `@font-face` sont écrits à la main dans `index.css` plutôt qu'importés du paquet : le
+  `globPatterns: ['**/*.woff2']` du service worker précacherait sinon **tous** les
+  alphabets (vietnamien, cyrillique, grec…). Deux classes portent le ton : `.display`
+  (titres, 800, resserrés) et `.eyebrow` (sur-titres capitales espacées).
+- Mouvement discret mais présent : `--ease-spring` à l'appui (classe `.springy`), cascade
+  `.animate-rise` sur les cartes, halo battant sous l'épingle sélectionnée. Tout est
+  neutralisé par `prefers-reduced-motion`, y compris le halo (qui vérifie la préférence en
+  JavaScript, une animation `requestAnimationFrame` échappant à la règle CSS).
+
+Chaque sport porte **trois** couleurs dans `sports.ts`, et confondre leurs rôles se voit
+tout de suite :
+
+- `color` — teinte d'identité, utilisée en fond très transparent (`${color}1f`) ;
+- `vivid` — l'aplat vif : épingles, puces actives, tuiles de filtres, pastilles ;
+- `deep` — assombri jusqu'à garantir 4,5:1 avec du **blanc**, pour les grandes surfaces
+  (bandeau de la fiche d'équipement).
+
+Sur un aplat `vivid`, ne pas choisir la couleur du texte à la main : `readableOn(hex)`
+renvoie l'encre ou le blanc selon le contraste réel. C'est ce qui permet de garder un jaune
+de volley et un violet de skate côte à côte sans en rendre un illisible.
+
+## Le fond de carte est retraité, pas repris tel quel
+
+`src/lib/mapTheme.ts` charge le style Plan IGN **« épuré »** (`epure.json`, pas
+`standard.json` : 321 couches au lieu de 425, et pas de couleurs touristiques à défaire)
+puis le recolore avant de le donner à MapLibre.
+
+Le retraitement ne réécrit pas les couches : il **traverse récursivement les valeurs de
+`paint`** et transforme chaque couleur rencontrée, expressions comprises. La hiérarchie des
+routes et les variations selon le zoom sont donc conservées intactes — c'est ce qui
+distingue cette approche d'un aplatissement en couleur fixe, qui les détruirait.
+
+Une « recette » par famille de `source-layer` impose teinte et saturation, et comprime la
+clarté (`base + range × clarté d'origine`). Points à connaître :
+
+- **L'ordre des préfixes compte** : le premier qui correspond gagne, donc `bati_zone` (les
+  îlots urbains, qui couvrent de grandes surfaces) doit passer avant `bati`. Inversé, les
+  villes deviennent une masse grise.
+- `keepWhite` n'est activé que pour `routier` : c'est le blanc franc des routes sur une
+  terre plus sourde qui dessine la trame. Sur `bati`, le même réglage rendait les bâtiments
+  plus clairs que la terre.
+- La terre doit rester la surface **la plus claire** de la carte ; tout le reste s'en écarte
+  à peine, sauf la végétation (tirée vers le lime de l'application) et l'eau.
+- Les libellés sont réaffectés par famille, sauf les numéros de route : ils sont écrits en
+  clair sur une pastille sombre, et les repeindre en encre les efface. D'où le test sur la
+  clarté d'origine avant réaffectation.
+
+Et le piège qui coûte une carte vide : **`map.setStyle()` repart d'une feuille vierge** —
+sources, couches *et* images ajoutées disparaissent. Comme le style thématisé arrive après
+la création de la carte (style provisoire à la bonne couleur de terre en attendant),
+l'installation des couches doit être **idempotente et rejouée à chaque `styledata`**, et
+relire les données courantes depuis des refs (`itemsRef`, `selectedIdRef`) — un `useEffect`
+ne se redéclenche pas, lui. Le chien de garde ne peut plus tester `isStyleLoaded()` non
+plus (vrai dès le style provisoire) : il vérifie la présence de la source `plan_ign`.
+
+En cas d'échec du retraitement, repli sur l'URL brute du style : carte non thématisée mais
+application utilisable.
 
 ## L'API Data ES, ce qu'il faut savoir avant d'y toucher
 
@@ -132,12 +206,15 @@ catégorie : résultat identique, URL deux fois plus courte.
 - **Géocodage** : `https://data.geopf.fr/geocodage/search` et `/reverse`.
   `api-adresse.data.gouv.fr` est déprécié (il redirige en annonçant son retrait).
   Types renvoyés : `municipality`, `locality`, `street`, `housenumber`.
-- **Fond de carte** : style vectoriel Plan IGN v2,
-  `https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/standard.json`,
-  tuiles `/tms/1.0.0/PLAN.IGN/{z}/{x}/{y}.pbf`, sans clé. Les seules polices disponibles
-  dans les glyphes sont **`Source Sans Pro {Regular,Bold,Semibold,Italic}`** — `Noto Sans`
-  renvoie 404, et un `text-font` inexistant fait disparaître les libellés d'agrégats.
-  Une variante raster existe si besoin (WMTS, couche `GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2`).
+- **Fond de carte** : styles vectoriels Plan IGN v2 sous
+  `https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/`, tuiles
+  `/tms/1.0.0/PLAN.IGN/{z}/{x}/{y}.pbf`, sans clé. Six variantes répondent 200 :
+  `standard`, `epure`, `attenue`, `gris`, `classique`, `accentue` (`essentiels` et
+  `sans-toponymes` n'existent pas). L'application part de `epure` et le recolore — voir
+  « Le fond de carte est retraité ». Les seules polices disponibles dans les glyphes sont
+  **`Source Sans Pro {Regular,Bold,Semibold,Italic}`** — `Noto Sans` renvoie 404, et un
+  `text-font` inexistant fait disparaître les libellés d'agrégats. Une variante raster
+  existe si besoin (WMTS, couche `GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2`).
 
 ## Pièges déjà payés — ne pas les repayer
 
@@ -158,8 +235,10 @@ catégorie : résultat identique, URL deux fois plus courte.
    `node` y sont pour cette raison).
 5. **Vite 8 / rolldown** : `build.rolldownOptions.output.advancedChunks`, pas
    `manualChunks` (qui échoue au typage).
-6. **Épingles** : dessinées au `<canvas>` (bulle blanche cerclée, emoji au centre) puis
-   `map.addImage()`. Une image manquante ne lève pas d'erreur, elle n'affiche rien.
+6. **Épingles** : dessinées au `<canvas>` (goutte pleine en `vivid`, pastille blanche
+   portant l'emoji) puis `map.addImage()`. Une image manquante ne lève pas d'erreur, elle
+   n'affiche rien. Les regroupements, eux, sont des couches `circle` : pas de dégradé
+   possible, la profondeur vient d'une lueur lime posée sous le disque d'encre.
 
 ## Vérifier son travail dans cet environnement
 
@@ -186,13 +265,36 @@ drapeaux) sur les fixtures : c'est ce qui permet de vérifier que les filtres pr
 des résultats différents. Ces scripts vivaient dans le répertoire de session (éphémère) :
 ils ne sont pas dans le dépôt, il faut les recréer — compter une dizaine de minutes.
 
-Variante plus simple que les fixtures, si le réseau sortant marche depuis Node : au lieu de
+Variante plus simple que les fixtures, et **c'est celle à privilégier** : au lieu de
 capturer des réponses à l'avance, **relayer** l'appel dans le `context.route()` — `fetch()`
-côté Node puis `route.fulfill()`. Le navigateur voit de vraies données fraîches sans sortir
-du conteneur. Le style IGN reste à remplacer par un style minimal
-(`{version: 8, sources: {}, layers: [{id, type: 'background'}]}`), sinon MapLibre ne
-s'initialise pas, `onViewChange` ne part jamais et la liste reste sur « Zoomez pour
-découvrir ».
+côté Node (avec `NODE_USE_ENV_PROXY=1`) puis `route.fulfill()`. Le navigateur voit de
+vraies données fraîches sans sortir du conteneur.
+
+Contrairement à ce qui était noté ici, il n'y a **pas besoin de remplacer le style IGN par
+un style minimal** : en relayant tout `data.geopf.fr` — style, glyphes *et* tuiles `.pbf`
+en binaire (`Buffer.from(await res.arrayBuffer())`) — on obtient le vrai fond de carte dans
+la capture. C'est ce qui a permis de juger la charte visuelle sur pièces. Une trentaine de
+lignes suffit :
+
+```js
+await ctx.route('**://*/**', async (route) => {
+  const u = route.request().url()
+  if (u.startsWith('http://127.0.0.1:5188')) return route.continue()
+  if (!/^https:\/\/(data\.geopf\.fr|equipements\.sports\.gouv\.fr)\//.test(u)) {
+    return route.abort() // tout le reste (télémétrie Chromium) est coupé
+  }
+  const res = await fetch(u)
+  route.fulfill({
+    status: res.status,
+    headers: { 'content-type': res.headers.get('content-type') ?? '' },
+    body: Buffer.from(await res.arrayBuffer()),
+  })
+})
+```
+
+Mettre les réponses en cache dans une `Map` : sans cela une vue urbaine relaie une centaine
+de tuiles à chaque capture. Options Chromium qui marchent avec MapLibre :
+`--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader --no-sandbox`.
 
 À vérifier en plus quand on touche à la requête : envoyer la clause `where` réellement
 générée à l'API réelle avec `curl`. Toutes catégories cochées, elle fait ~3 480 caractères
@@ -208,15 +310,20 @@ Détails d'outillage :
   ligne de commande du shell appelant lui-même. Servir chaque version sur un port distinct
   plutôt que tuer le serveur précédent.
 - Playwright est bien installé globalement, mais un script placé ailleurs (répertoire de
-  session) **ne le résout pas** : importer par chemin absolu
-  (`/opt/node22/lib/node_modules/playwright/index.mjs`) ou passer `NODE_PATH`.
+  session) **ne le résout pas** : importer par chemin absolu ou passer `NODE_PATH`.
   `/opt/pw-browsers/chromium` est un lien vers le binaire, plus court à écrire.
+  Selon l'image, `require.resolve('playwright')` peut échouer et le paquet exposer du
+  CommonJS (`import pw from '…/playwright/index.js'; const { chromium } = pw`) : le plus
+  robuste est de faire un `npm install playwright` **dans le répertoire de session**, pas
+  dans le dépôt — un `npm install` du projet élague les paquets installés en `--no-save` et
+  casse le script de capture en cours de route.
 - Pour comparer avant/après, `git worktree add --detach <dir> <ref>` avec un lien
   symbolique vers `node_modules` — **jamais `git stash`** : si la commande casse en cours
   de chaîne, le travail reste dans la pile et l'arbre paraît propre.
 - La feuille de résultats ne se déplie pas au `click()` : le gestionnaire de glissement
-  avale l'événement. Reproduire le geste (`mouse.down`, `mouse.move` vers le haut de
-  ~260 px, `mouse.up`), puis attendre `aria-expanded="true"`.
+  avale l'événement. Reproduire le geste sur son en-tête
+  (`[aria-label="Liste des équipements"] > div:first-child` : `mouse.down`, `mouse.move`
+  vers le haut de ~340 px, `mouse.up`), puis attendre `aria-expanded="true"`.
 - Pour attendre un événement, utiliser une boucle `until` en tâche de fond plutôt qu'un
   long `sleep`.
 
@@ -239,6 +346,9 @@ Les modifier sans y penser dégrade l'expérience :
   affichée.
 - La sélection ne recentre la carte que si le point est masqué (en-tête, feuille, hors
   écran).
+- La position d'aperçu de la feuille n'est **pas** une constante : elle vaut la hauteur
+  réelle de l'en-tête, mesurée au `ResizeObserver`. Une valeur en dur laissait dépasser un
+  bout de carte tronqué dès que le titre passait sur deux lignes.
 - État partagé dans l'URL : `lat`, `lng`, `z`, `s` (sports), `f` (drapeaux), `e`
   (équipement). Filtres mémorisés sous `sportsderue.filters.v1`.
 
