@@ -24,8 +24,8 @@ export default defineConfig({
         dir: 'ltr',
         display: 'standalone',
         orientation: 'portrait',
-        background_color: '#f6f7f5',
-        theme_color: '#0f7b5f',
+        background_color: '#f4f4ed',
+        theme_color: '#f4f4ed',
         categories: ['sports', 'navigation', 'utilities'],
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },

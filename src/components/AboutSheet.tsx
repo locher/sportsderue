@@ -16,14 +16,14 @@ export function AboutSheet({ open, onClose }: Props) {
         </p>
 
         <section>
-          <h3 className="mb-1 font-semibold">D’où viennent les données ?</h3>
+          <h3 className="display mb-1.5 text-base">D’où viennent les données ?</h3>
           <p>
             Du{' '}
             <a
               href="https://equipements.sports.gouv.fr/explore/dataset/data-es/"
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-brand underline"
+              className="font-bold text-ink underline decoration-lime decoration-2 underline-offset-2"
             >
               Recensement des équipements sportifs (Data ES)
             </a>{' '}
@@ -33,7 +33,7 @@ export function AboutSheet({ open, onClose }: Props) {
               href="https://geoservices.ign.fr/services-geoplateforme"
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-brand underline"
+              className="font-bold text-ink underline decoration-lime decoration-2 underline-offset-2"
             >
               Géoplateforme de l’IGN
             </a>
@@ -42,7 +42,7 @@ export function AboutSheet({ open, onClose }: Props) {
         </section>
 
         <section>
-          <h3 className="mb-1 font-semibold">Comment sont sélectionnés les équipements ?</h3>
+          <h3 className="display mb-1.5 text-base">Comment sont sélectionnés les équipements ?</h3>
           <p>Sont affichés uniquement les équipements :</p>
           <ul className="mt-1 list-disc space-y-1 pl-5">
             <li>déclarés « en accès libre » par leur propriétaire ;</li>
@@ -58,7 +58,7 @@ export function AboutSheet({ open, onClose }: Props) {
         </section>
 
         <section>
-          <h3 className="mb-1 font-semibold">Vie privée</h3>
+          <h3 className="display mb-1.5 text-base">Vie privée</h3>
           <p>
             Aucun compte, aucun traceur, aucune donnée envoyée à un serveur tiers hormis les API
             publiques de l’État. Votre position ne quitte jamais votre appareil : elle sert
@@ -67,14 +67,14 @@ export function AboutSheet({ open, onClose }: Props) {
         </section>
 
         <section>
-          <h3 className="mb-1 font-semibold">Une erreur dans une fiche ?</h3>
+          <h3 className="display mb-1.5 text-base">Une erreur dans une fiche ?</h3>
           <p>
             Les corrections se font auprès du recensement national, via le{' '}
             <a
               href="https://www.sports.gouv.fr/recensement-des-equipements-sportifs-data-es-671"
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-brand underline"
+              className="font-bold text-ink underline decoration-lime decoration-2 underline-offset-2"
             >
               portail du ministère
             </a>

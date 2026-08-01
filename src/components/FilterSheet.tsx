@@ -3,6 +3,7 @@ import {
   ALL_CATEGORY_IDS,
   CATEGORIES,
   DEFAULT_CATEGORY_IDS,
+  readableOn,
   type CategoryId,
 } from '../lib/sports'
 import { BottomSheet } from './BottomSheet'
@@ -77,7 +78,7 @@ export function FilterSheet({ open, filters, resultCount, onChange, onClose }: P
       title="Filtres"
       onClose={onClose}
       footer={
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() =>
@@ -88,16 +89,16 @@ export function FilterSheet({ open, filters, resultCount, onChange, onClose }: P
                 accessibleOnly: false,
               })
             }
-            className="rounded-full px-4 py-3 text-sm font-medium text-muted active:bg-canvas"
+            className="springy rounded-full px-4 py-3.5 text-sm font-bold text-muted"
           >
             Réinitialiser
           </button>
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 rounded-full bg-brand px-4 py-3 font-semibold text-white active:bg-brand-dark"
+            className="springy flex-1 rounded-full bg-lime px-4 py-4 font-extrabold text-ink shadow-lift"
           >
-            Voir {resultCount > 0 ? `les ${resultCount} équipements` : 'la carte'}
+            Voir {resultCount > 0 ? `les ${resultCount} spots` : 'la carte'}
           </button>
         </div>
       }
@@ -109,13 +110,11 @@ export function FilterSheet({ open, filters, resultCount, onChange, onClose }: P
           return (
             <section key={group.id}>
               <div className="mb-1 flex items-baseline justify-between gap-3">
-                <h3 className="text-sm font-semibold tracking-wide text-ink uppercase">
-                  {group.title}
-                </h3>
+                <h3 className="display text-lg">{group.title}</h3>
                 <button
                   type="button"
                   onClick={() => setGroup(group.id, !allOn)}
-                  className="shrink-0 text-sm font-medium text-brand"
+                  className="shrink-0 rounded-full bg-canvas px-3 py-1.5 text-[13px] font-bold text-ink"
                 >
                   {allOn ? 'Tout décocher' : 'Tout cocher'}
                 </button>
@@ -124,19 +123,33 @@ export function FilterSheet({ open, filters, resultCount, onChange, onClose }: P
               <div className="grid grid-cols-2 gap-2">
                 {categories.map((category) => {
                   const active = filters.categories.includes(category.id)
+                  const onColor = readableOn(category.vivid)
                   return (
                     <button
                       key={category.id}
                       type="button"
                       aria-pressed={active}
                       onClick={() => toggleCategory(category.id)}
-                      className={`flex items-center gap-2 rounded-2xl border p-3 text-left text-sm font-medium transition-colors ${
-                        active
-                          ? 'border-brand bg-brand-light text-brand-dark'
-                          : 'border-line bg-white text-ink'
+                      className={`springy flex items-center gap-2.5 rounded-[22px] p-2.5 text-left text-sm font-bold ${
+                        active ? '' : 'bg-canvas text-ink'
                       }`}
+                      style={
+                        active
+                          ? { backgroundColor: category.vivid, color: onColor }
+                          : undefined
+                      }
                     >
-                      <span aria-hidden="true" className="text-lg leading-none">
+                      <span
+                        aria-hidden="true"
+                        className="grid size-10 shrink-0 place-items-center rounded-[15px] text-lg leading-none"
+                        style={{
+                          backgroundColor: active
+                            ? onColor === '#ffffff'
+                              ? 'rgb(255 255 255 / 0.24)'
+                              : 'rgb(255 255 255 / 0.5)'
+                            : 'white',
+                        }}
+                      >
                         {category.emoji}
                       </span>
                       <span className="min-w-0 flex-1 leading-tight">{category.label}</span>
@@ -149,31 +162,40 @@ export function FilterSheet({ open, filters, resultCount, onChange, onClose }: P
         })}
 
         <section>
-          <h3 className="mb-3 text-sm font-semibold tracking-wide text-ink uppercase">
-            Caractéristiques
-          </h3>
-          <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line">
-            {options.map((option) => (
-              <li key={option.key}>
-                <label className="flex cursor-pointer items-center gap-3 bg-white p-3">
-                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-canvas text-muted">
-                    {option.icon}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-medium">{option.label}</span>
-                    <span className="block text-sm text-muted">{option.hint}</span>
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={filters[option.key]}
-                    onChange={(event) =>
-                      onChange({ ...filters, [option.key]: event.target.checked })
-                    }
-                    className="size-5 shrink-0 accent-brand"
-                  />
-                </label>
-              </li>
-            ))}
+          <h3 className="display mb-3 text-lg">Caractéristiques</h3>
+          <ul className="space-y-2">
+            {options.map((option) => {
+              const on = filters[option.key]
+              return (
+                <li key={option.key}>
+                  <label
+                    className={`flex cursor-pointer items-center gap-3 rounded-[22px] p-3 transition-colors ${
+                      on ? 'bg-lime' : 'bg-canvas'
+                    }`}
+                  >
+                    <span
+                      className={`grid size-11 shrink-0 place-items-center rounded-[15px] transition-colors ${
+                        on ? 'bg-ink text-lime' : 'bg-white text-muted'
+                      }`}
+                    >
+                      {option.icon}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-bold">{option.label}</span>
+                      <span className="block text-sm text-muted">{option.hint}</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={(event) =>
+                        onChange({ ...filters, [option.key]: event.target.checked })
+                      }
+                      className="size-5 shrink-0 accent-ink"
+                    />
+                  </label>
+                </li>
+              )
+            })}
           </ul>
         </section>
 

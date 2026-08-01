@@ -1,4 +1,4 @@
-import { CATEGORIES, DEFAULT_CATEGORY_IDS, type CategoryId } from '../lib/sports'
+import { CATEGORIES, DEFAULT_CATEGORY_IDS, readableOn, type CategoryId } from '../lib/sports'
 
 interface Props {
   active: CategoryId[]
@@ -12,6 +12,9 @@ function sameSet(a: readonly string[], b: readonly string[]): boolean {
 /**
  * Puces de filtre rapide. Le geste attendu sur mobile : une tape isole un sport,
  * une seconde tape revient à la sélection par défaut.
+ *
+ * Une puce active passe en encre sombre, cerclée et auréolée de la couleur du sport :
+ * la sélection se lit d'un coup d'œil, même par-dessus une carte chargée.
  */
 export function SportChips({ active, onChange }: Props) {
   const isDefault = sameSet(active, DEFAULT_CATEGORY_IDS)
@@ -30,19 +33,13 @@ export function SportChips({ active, onChange }: Props) {
   }
 
   return (
-    <div
-      className="scroll-x flex gap-2 px-3 pb-1"
-      role="group"
-      aria-label="Filtrer par sport"
-    >
+    <div className="scroll-x flex gap-2 px-3 pb-2" role="group" aria-label="Filtrer par sport">
       <button
         type="button"
         aria-pressed={isDefault}
         onClick={() => onChange(DEFAULT_CATEGORY_IDS)}
-        className={`shrink-0 rounded-full border px-3.5 py-2 text-sm font-medium whitespace-nowrap shadow-card transition-colors ${
-          isDefault
-            ? 'border-brand bg-brand text-white'
-            : 'border-line bg-white text-ink active:bg-canvas'
+        className={`springy shrink-0 self-center rounded-full px-4 py-2.5 text-sm font-extrabold whitespace-nowrap shadow-card ${
+          isDefault ? 'bg-lime text-ink' : 'glass text-ink'
         }`}
       >
         Tous
@@ -50,6 +47,7 @@ export function SportChips({ active, onChange }: Props) {
 
       {CATEGORIES.map((category) => {
         const isActive = !isDefault && active.includes(category.id)
+        const onColor = readableOn(category.vivid)
         return (
           <button
             key={category.id}
@@ -57,13 +55,26 @@ export function SportChips({ active, onChange }: Props) {
             aria-pressed={isActive}
             onClick={() => toggle(category.id)}
             title={category.label}
-            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-2 text-sm font-medium whitespace-nowrap shadow-card transition-colors ${
-              isActive
-                ? 'border-brand bg-brand text-white'
-                : 'border-line bg-white text-ink active:bg-canvas'
+            className={`springy flex shrink-0 items-center gap-2 rounded-full py-1.5 pr-4 pl-1.5 text-sm font-bold whitespace-nowrap shadow-card ${
+              isActive ? '' : 'glass text-ink'
             }`}
+            style={
+              isActive ? { backgroundColor: category.vivid, color: onColor } : undefined
+            }
           >
-            <span aria-hidden="true">{category.emoji}</span>
+            <span
+              aria-hidden="true"
+              className="grid size-8 place-items-center rounded-full text-base leading-none"
+              style={{
+                backgroundColor: isActive
+                  ? onColor === '#ffffff'
+                    ? 'rgb(255 255 255 / 0.24)'
+                    : 'rgb(255 255 255 / 0.5)'
+                  : `${category.color}1f`,
+              }}
+            >
+              {category.emoji}
+            </span>
             {category.short}
           </button>
         )

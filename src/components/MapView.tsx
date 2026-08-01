@@ -4,6 +4,7 @@ import {
   MapLibreMap,
   Marker,
   setWorkerUrl,
+  type DataDrivenPropertyValueSpecification,
   type GeoJSONSource,
   type MapGeoJSONFeature,
   type MapMouseEvent,
@@ -13,14 +14,8 @@ import {
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type { Bbox, Equipment, LngLat, MapPosition } from '../types'
 import { CATEGORIES } from '../lib/sports'
+import { MAP_LAND, MAP_STYLE_URL, loadMapStyle } from '../lib/mapTheme'
 import type { UserPosition } from '../hooks/useGeolocation'
-
-/**
- * Fond de carte : Plan IGN v2 vectoriel, servi par la Géoplateforme.
- * Libre d'usage, sans clé d'API, et centré sur la France — ce qui convient bien ici.
- */
-const STYLE_URL =
-  'https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/standard.json'
 
 setWorkerUrl(maplibreWorkerUrl)
 
@@ -28,6 +23,7 @@ const SOURCE_ID = 'equipements'
 const LAYER_PINS = 'equipements-pins'
 const LAYER_CLUSTERS = 'equipements-clusters'
 const LAYER_CLUSTER_COUNT = 'equipements-clusters-count'
+const LAYER_CLUSTER_GLOW = 'equipements-clusters-glow'
 const LAYER_HALO = 'equipements-halo'
 
 const ATTRIBUTION = [
@@ -53,10 +49,13 @@ interface Props {
   onMoveStart?: () => void
 }
 
-/** Dessine une épingle : bulle blanche cerclée de la couleur de la catégorie + emoji. */
+/**
+ * Dessine une épingle : goutte pleine dans la couleur du sport, pastille blanche
+ * portant l'emoji, liseré blanc pour la détacher du fond de carte.
+ */
 function pinImage(emoji: string, color: string, dpr: number): ImageData | null {
-  const w = 34
-  const h = 43
+  const w = 40
+  const h = 50
   const canvas = document.createElement('canvas')
   canvas.width = Math.round(w * dpr)
   canvas.height = Math.round(h * dpr)
@@ -65,34 +64,39 @@ function pinImage(emoji: string, color: string, dpr: number): ImageData | null {
   ctx.scale(dpr, dpr)
 
   const cx = w / 2
-  const cy = 15.5
-  const r = 13
+  const cy = 18
+  const r = 15
+  const tip = h - 3
 
-  // Pointe
-  ctx.beginPath()
-  ctx.moveTo(cx - 6.5, cy + 9)
-  ctx.lineTo(cx, h - 2.5)
-  ctx.lineTo(cx + 6.5, cy + 9)
-  ctx.closePath()
+  // Contour de la goutte : disque + pointe tangente, tracés d'un seul trait.
+  const spread = Math.asin(5.2 / r)
+  const drop = new Path2D()
+  drop.arc(cx, cy, r, Math.PI / 2 - spread, Math.PI / 2 + spread, true)
+  drop.lineTo(cx, tip)
+  drop.closePath()
+
+  ctx.shadowColor = 'rgba(20, 26, 23, 0.34)'
+  ctx.shadowBlur = 4
+  ctx.shadowOffsetY = 2
+
   ctx.fillStyle = color
-  ctx.fill()
+  ctx.fill(drop)
 
-  // Bulle
-  ctx.shadowColor = 'rgba(18, 36, 31, 0.35)'
-  ctx.shadowBlur = 3
-  ctx.shadowOffsetY = 1
-  ctx.beginPath()
-  ctx.arc(cx, cy, r, 0, Math.PI * 2)
-  ctx.fillStyle = '#ffffff'
-  ctx.fill()
   ctx.shadowColor = 'transparent'
   ctx.shadowBlur = 0
-  ctx.lineWidth = 3
-  ctx.strokeStyle = color
-  ctx.stroke()
+  ctx.shadowOffsetY = 0
+  ctx.lineWidth = 2
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)'
+  ctx.stroke(drop)
+
+  // Pastille blanche : l'emoji garde ses couleurs sans se noyer dans le fond.
+  ctx.beginPath()
+  ctx.arc(cx, cy, 11.5, 0, Math.PI * 2)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill()
 
   ctx.font =
-    '16px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif'
+    '15px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(emoji, cx, cy + 1)
@@ -105,7 +109,7 @@ function registerIcons(map: MapLibreMap): void {
   for (const category of CATEGORIES) {
     const id = `pin-${category.id}`
     if (map.hasImage(id)) continue
-    const image = pinImage(category.emoji, category.color, dpr)
+    const image = pinImage(category.emoji, category.vivid, dpr)
     if (!image) continue
     map.addImage(
       id,
@@ -113,6 +117,29 @@ function registerIcons(map: MapLibreMap): void {
       { pixelRatio: dpr },
     )
   }
+}
+
+/** `cat` → couleur vive du sport, pour teinter le halo de sélection. */
+function categoryColorExpression(): DataDrivenPropertyValueSpecification<string> {
+  const cases: unknown[] = ['match', ['get', 'cat']]
+  for (const category of CATEGORIES) cases.push(category.id, category.vivid)
+  cases.push('#141a17')
+  return cases as DataDrivenPropertyValueSpecification<string>
+}
+
+/** Rayon d'un regroupement, croissant par paliers ; `extra` élargit la lueur. */
+function clusterRadius(extra: number): DataDrivenPropertyValueSpecification<number> {
+  return [
+    'step',
+    ['get', 'point_count'],
+    18 + extra,
+    10,
+    22 + extra,
+    50,
+    27 + extra,
+    200,
+    33 + extra,
+  ]
 }
 
 function toFeatureCollection(items: Equipment[]): GeoJSON.FeatureCollection {
@@ -145,9 +172,9 @@ function userMarkerElement(): HTMLElement {
   const el = document.createElement('div')
   el.className = 'relative grid place-items-center'
   el.innerHTML = `
-    <span class="absolute size-9 rounded-full bg-sky-500/20 animate-ping"></span>
-    <span class="absolute size-6 rounded-full bg-sky-500/25"></span>
-    <span class="size-3.5 rounded-full bg-sky-600 ring-2 ring-white shadow"></span>`
+    <span class="absolute size-11 rounded-full bg-ink/15 animate-ping"></span>
+    <span class="absolute size-7 rounded-full bg-lime/70"></span>
+    <span class="size-4 rounded-full bg-ink ring-[3px] ring-white shadow-float"></span>`
   el.setAttribute('aria-hidden', 'true')
   return el
 }
@@ -172,12 +199,27 @@ export function MapView({
   const handlers = useRef({ onViewChange, onSelect, onMoveStart })
   handlers.current = { onViewChange, onSelect, onMoveStart }
 
+  // Idem pour l'état : à chaque changement de style, les couches sont réinstallées
+  // et doivent repartir des données courantes.
+  const itemsRef = useRef(items)
+  itemsRef.current = items
+  const selectedIdRef = useRef(selectedId)
+  selectedIdRef.current = selectedId
+
   useEffect(() => {
     if (!container.current || mapRef.current) return
 
     const map = new MapLibreMap({
       container: container.current,
-      style: STYLE_URL,
+      // Style provisoire : la terre à la bonne couleur, le temps que le style
+      // thématisé soit chargé. Évite le flash blanc au démarrage.
+      style: {
+        version: 8,
+        sources: {},
+        layers: [
+          { id: 'fond-application', type: 'background', paint: { 'background-color': MAP_LAND } },
+        ],
+      },
       center: [initialPosition.lon, initialPosition.lat],
       zoom: initialPosition.zoom,
       minZoom: 4,
@@ -188,6 +230,20 @@ export function MapView({
       attributionControl: false,
     })
     mapRef.current = map
+
+    // Le style Plan IGN est recoloré dans la palette de l'application avant d'être
+    // posé sur la carte ; si le retraitement échoue, on retombe sur le style brut.
+    const styleAbort = new AbortController()
+    void loadMapStyle(styleAbort.signal)
+      .then((style) => {
+        if (styleAbort.signal.aborted) return
+        map.setStyle(style)
+      })
+      .catch((cause: unknown) => {
+        if (styleAbort.signal.aborted) return
+        console.warn('Thème de carte indisponible, style IGN brut utilisé.', cause)
+        map.setStyle(MAP_STYLE_URL)
+      })
     map.touchZoomRotate.disableRotation()
     // Poignée de débogage en développement (retirée du bundle de production).
     if (import.meta.env.DEV) Object.assign(window, { __map: map })
@@ -200,21 +256,40 @@ export function MapView({
     )
 
     // Le style distant peut être momentanément indisponible : on prévient l'utilisateur
-    // plutôt que de laisser une carte blanche.
+    // plutôt que de laisser une carte vide. Le style provisoire ne compte pas : on
+    // attend la source des tuiles Plan IGN.
     const styleWatchdog = window.setTimeout(() => {
-      if (!map.isStyleLoaded()) setStyleError(true)
+      if (!map.getSource('plan_ign')) setStyleError(true)
     }, 12_000)
-    map.on('styledata', () => setStyleError(false))
 
-    map.on('load', () => {
+    /**
+     * Pose les couches de l'application. Idempotent : `setStyle` repart d'une
+     * feuille vierge, il faut donc pouvoir tout réinstaller à chaque style chargé.
+     */
+    const installLayers = () => {
+      if (!map.style || map.getSource(SOURCE_ID)) return
       registerIcons(map)
 
       map.addSource(SOURCE_ID, {
         type: 'geojson',
-        data: toFeatureCollection([]),
+        data: toFeatureCollection(itemsRef.current),
         cluster: true,
         clusterRadius: 52,
         clusterMaxZoom: 13,
+      })
+
+      // Auréole des regroupements : une lueur large sous le disque, qui donne du
+      // relief et rattache visuellement le point au dégradé de l'application.
+      map.addLayer({
+        id: LAYER_CLUSTER_GLOW,
+        type: 'circle',
+        source: SOURCE_ID,
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': '#d6fb4f',
+          'circle-opacity': 0.55,
+          'circle-radius': clusterRadius(7),
+        },
       })
 
       map.addLayer({
@@ -223,12 +298,12 @@ export function MapView({
         source: SOURCE_ID,
         filter: ['==', ['get', 'id'], ''],
         paint: {
-          'circle-radius': 20,
-          'circle-color': '#0f7b5f',
-          'circle-opacity': 0.18,
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#0f7b5f',
-          'circle-stroke-opacity': 0.5,
+          'circle-radius': 22,
+          'circle-color': categoryColorExpression() as never,
+          'circle-opacity': 0.22,
+          'circle-stroke-width': 2.5,
+          'circle-stroke-color': categoryColorExpression() as never,
+          'circle-stroke-opacity': 0.7,
         },
       })
 
@@ -238,20 +313,9 @@ export function MapView({
         source: SOURCE_ID,
         filter: ['has', 'point_count'],
         paint: {
-          'circle-color': '#0f7b5f',
-          'circle-opacity': 0.92,
-          'circle-radius': [
-            'step',
-            ['get', 'point_count'],
-            17,
-            10,
-            21,
-            50,
-            26,
-            200,
-            32,
-          ],
-          'circle-stroke-width': 2.5,
+          'circle-color': '#141a17',
+          'circle-radius': clusterRadius(0),
+          'circle-stroke-width': 3,
           'circle-stroke-color': '#ffffff',
         },
       })
@@ -264,7 +328,7 @@ export function MapView({
         layout: {
           'text-field': ['get', 'point_count_abbreviated'],
           'text-font': ['Source Sans Pro Bold'],
-          'text-size': 13,
+          'text-size': 14,
           'text-allow-overlap': true,
         },
         paint: { 'text-color': '#ffffff' },
@@ -284,9 +348,16 @@ export function MapView({
         },
       })
 
+      map.setFilter(LAYER_HALO, ['==', ['get', 'id'], selectedIdRef.current ?? ''])
       setReady(true)
       handlers.current.onViewChange(readPosition(map), readBbox(map))
+    }
+
+    map.on('styledata', () => {
+      setStyleError(false)
+      installLayers()
     })
+    if (map.isStyleLoaded()) installLayers()
 
     const emitView = () => handlers.current.onViewChange(readPosition(map), readBbox(map))
     map.on('moveend', emitView)
@@ -345,6 +416,7 @@ export function MapView({
     }
 
     return () => {
+      styleAbort.abort()
       window.clearTimeout(styleWatchdog)
       userMarker.current?.remove()
       userMarker.current = null
@@ -363,11 +435,29 @@ export function MapView({
     source?.setData(toFeatureCollection(items))
   }, [items, ready])
 
-  // Mise en évidence de l'équipement sélectionné
+  // Mise en évidence de l'équipement sélectionné : le halo « bat » doucement,
+  // comme un cœur à l'effort, pour attirer l'œil sans masquer la carte.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
     map.setFilter(LAYER_HALO, ['==', ['get', 'id'], selectedId ?? ''])
+    if (!selectedId) return
+
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (calm) return
+
+    let frame = 0
+    const start = performance.now()
+    const beat = (now: number) => {
+      const phase = ((now - start) % 1900) / 1900
+      const wave = (1 - Math.cos(phase * 2 * Math.PI)) / 2
+      map.setPaintProperty(LAYER_HALO, 'circle-radius', 20 + wave * 12)
+      map.setPaintProperty(LAYER_HALO, 'circle-opacity', 0.26 - wave * 0.14)
+      map.setPaintProperty(LAYER_HALO, 'circle-stroke-opacity', 0.75 - wave * 0.45)
+      frame = requestAnimationFrame(beat)
+    }
+    frame = requestAnimationFrame(beat)
+    return () => cancelAnimationFrame(frame)
   }, [selectedId, ready])
 
   // Position de l'utilisateur
@@ -432,7 +522,7 @@ export function MapView({
     <div className="absolute inset-0">
       <div ref={container} className="size-full" />
       {styleError && (
-        <p className="absolute inset-x-3 top-1/2 rounded-xl bg-white/95 p-3 text-center text-sm text-muted shadow-float">
+        <p className="animate-rise glass absolute inset-x-4 top-1/2 rounded-3xl p-4 text-center text-sm font-medium text-muted shadow-float">
           Le fond de carte IGN est momentanément indisponible.
         </p>
       )}

@@ -202,16 +202,31 @@ export default function App() {
         onMoveStart={() => setFollowUser(false)}
       />
 
+      {/* Voile dégradé : les commandes blanches restent lisibles sur une carte chargée. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 z-20 h-52 bg-gradient-to-b from-canvas/70 to-transparent"
+      />
+
       <header className="pointer-events-none absolute inset-x-0 top-0 z-30 pt-[env(safe-area-inset-top)]">
-        <div className="pointer-events-auto flex items-center gap-2 px-3 pt-3 pb-2">
+        <div className="pointer-events-auto flex items-center gap-2 px-3 pt-3 pb-3">
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-full bg-white px-4 py-3 text-left shadow-float"
+            className="springy glass flex min-w-0 flex-1 items-center gap-3 rounded-full py-2 pr-5 pl-2 text-left shadow-float"
           >
-            <SearchIcon className="size-5 shrink-0 text-brand" />
-            <span className="min-w-0 flex-1 truncate text-muted">
-              {searchLabel ?? 'Ville, quartier, adresse…'}
+            <span
+              aria-hidden="true"
+              className="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-lime"
+            >
+              <SearchIcon className="size-5" />
+            </span>
+            <span className="min-w-0 flex-1 truncate">
+              {searchLabel ? (
+                <span className="block truncate font-bold text-ink">{searchLabel}</span>
+              ) : (
+                <span className="block truncate font-medium text-muted">Chercher un spot</span>
+              )}
             </span>
           </button>
 
@@ -219,11 +234,11 @@ export default function App() {
             type="button"
             onClick={() => setFiltersOpen(true)}
             aria-label={`Filtres${filterCount ? ` (${filterCount} actifs)` : ''}`}
-            className="relative grid size-12 shrink-0 place-items-center rounded-full bg-white text-ink shadow-float"
+            className="springy relative grid size-14 shrink-0 place-items-center rounded-full bg-ink text-white shadow-float"
           >
             <FilterIcon />
             {filterCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 grid size-5 place-items-center rounded-full bg-brand text-[11px] font-bold text-white">
+              <span className="animate-pop absolute -top-0.5 -right-0.5 grid size-6 place-items-center rounded-full bg-lime text-xs font-extrabold text-ink ring-[3px] ring-white">
                 {filterCount}
               </span>
             )}
@@ -238,21 +253,21 @@ export default function App() {
         </div>
 
         {geo.message && (
-          <div className="pointer-events-auto mx-3 mt-1 rounded-2xl bg-white/95 px-3 py-2 text-sm text-ink shadow-float">
+          <div className="animate-rise pointer-events-auto mx-3 mt-2 rounded-[22px] bg-ink px-4 py-3 text-sm font-semibold text-white shadow-float">
             {geo.message}
           </div>
         )}
       </header>
 
       <div
-        className="absolute right-3 z-20 flex flex-col gap-2 transition-[bottom] duration-300 ease-out"
-        style={{ bottom: sheetHeight + 12 }}
+        className="absolute right-3 z-20 flex flex-col items-end gap-2.5 transition-[bottom] duration-400 ease-[var(--ease-glide)]"
+        style={{ bottom: sheetHeight + 14 }}
       >
         <button
           type="button"
           onClick={() => setAboutOpen(true)}
           aria-label="À propos"
-          className="grid size-11 place-items-center rounded-full bg-white text-muted shadow-float"
+          className="springy glass grid size-11 place-items-center rounded-full text-muted shadow-float"
         >
           <InfoIcon />
         </button>
@@ -261,11 +276,20 @@ export default function App() {
           onClick={locateMe}
           aria-label="Me localiser"
           aria-pressed={followUser}
-          className={`grid size-12 place-items-center rounded-full shadow-float transition-colors ${
-            followUser && geo.position ? 'bg-brand text-white' : 'bg-white text-brand'
+          className={`springy relative grid size-14 place-items-center rounded-full text-ink shadow-float ${
+            followUser && geo.position ? 'bg-lime' : 'glass'
           }`}
         >
-          {geo.isLocating ? <Spinner className="size-5 animate-spin" /> : <LocateIcon />}
+          {/* Onde qui « respire » tant que la carte suit la position. */}
+          {followUser && geo.position && (
+            <span
+              aria-hidden="true"
+              className="animate-breathe absolute inset-0 rounded-full bg-lime"
+            />
+          )}
+          <span className="relative">
+            {geo.isLocating ? <Spinner className="size-5 animate-spin" /> : <LocateIcon />}
+          </span>
         </button>
       </div>
 
