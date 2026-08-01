@@ -46,6 +46,40 @@ La sélection est faite côté API (`src/lib/dataes.ts`) :
 Les catégories « nature » (randonnée, escalade, baignade) existent mais sont décochées par
 défaut, pour que la carte urbaine reste lisible.
 
+### Type d'équipement *et* activité praticable
+
+Le RES décrit un équipement de deux façons : ce qu'il **est** (`equip_type_name`) et ce
+qu'on **peut y pratiquer** (`aps_name`, multivalué). Un city-stade est un équipement
+unique — `Multisports/City-stades` — qui déclare le plus souvent basket, foot, hand et
+volley. Ne chercher que sur le type le rendait introuvable derrière le filtre « Basket »,
+alors qu'on y joue au basket. Les deux champs sont donc interrogés :
+
+| Filtre | Par type seul | Type ou activité |
+| --- | ---: | ---: |
+| Handball | 751 | 12 408 |
+| Basket | 4 084 | 17 732 |
+| Volley | 1 075 | 4 907 |
+| Football | 16 024 | 28 226 |
+| Tennis | 6 458 | 8 665 |
+| Pétanque | 20 952 | 21 416 |
+
+L'écart est le plus fort là où le sport se pratique surtout sur un terrain partagé
+(handball, basket) et négligeable là où il a son propre terrain (pétanque).
+
+Deux garde-fous :
+
+- **L'affichage ne change pas.** Un city-stade retrouvé via « Basket » garde son épingle
+  et son libellé de city-stade : il n'est pas dupliqué en une épingle par activité. La
+  liste ajoute simplement une mention « 🏀 Basket praticable » pour expliquer sa présence,
+  et seulement quand sa propre catégorie n'est pas cochée.
+- **L'activité est un signal plus faible que le type** — un gymnase peut déclarer dix
+  activités et remonter sous dix filtres. Les correspondances par activité sont donc
+  restreintes au plein air : hors salle pour les catégories urbaines, sites naturels
+  compris pour les catégories nature.
+
+La vue par défaut, elle, ne bouge quasiment pas (+0,3 % d'équipements) : ces city-stades
+étaient déjà sur la carte, ils n'étaient simplement pas atteignables par sport.
+
 Ces données sont **déclaratives** : un équipement peut être fermé, en travaux ou réservé à
 des créneaux scolaires. L'interface le dit sur chaque fiche.
 
@@ -84,7 +118,7 @@ src/
 ├── types.ts                   modèle d'équipement, filtres, lieux
 ├── lib/
 │   ├── dataes.ts              client Data ES : construction ODSQL, export GeoJSON, fiche
-│   ├── sports.ts              taxonomie des sports (catégories, emojis, couleurs)
+│   ├── sports.ts              taxonomie des sports (types, activités, emojis, couleurs)
 │   ├── geocode.ts             recherche et géocodage inverse Géoplateforme
 │   ├── geo.ts                 distances, emprises, liens d'itinéraire
 │   ├── cache.ts               cache mémoire des résultats par emprise + filtres
@@ -123,6 +157,11 @@ Détails d'implémentation utiles à connaître :
 - Les tables de ping-pong extérieures ne sont pas un type d'équipement du RES : elles sont
   retrouvées via l'activité praticable, ce qui remonte aussi des plateaux multisports
   équipés d'une table (~220 en France).
+- L'activité « Vtt (Cross Country/…) » n'est volontairement pas rattachée aux catégories
+  urbaines : 9 300 des 12 300 équipements qui la déclarent sont des boucles de randonnée,
+  qui noieraient la vue de proximité. Elles restent accessibles via la catégorie Randonnée.
+- Les correspondances par activité écartent les équipements dont `equip_nature` est vide
+  (~750 en France, dont 173 city-stades). Ceux-là restent trouvables par leur type.
 - La distance affichée est à vol d'oiseau, pas un temps de marche.
 - Pas encore : horaires d'ouverture (absents du RES), photos, signalement d'erreur intégré,
   itinéraire dans l'application.

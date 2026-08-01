@@ -277,6 +277,7 @@ export default function App() {
         total={equipments.total}
         zoomedOut={equipments.zoomedOut}
         areaLabel={areaLabel}
+        activeCategories={filters.categories}
         selectedId={selectedId}
         onSelect={onSelect}
         onRetry={equipments.reload}

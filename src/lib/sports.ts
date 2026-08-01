@@ -3,8 +3,30 @@
  *
  * La base Data ES (Recensement des Équipements Sportifs) décrit chaque équipement par
  * un `equip_type_name` (une centaine de valeurs) et par la liste des activités
- * praticables `aps_name`. On regroupe ces valeurs en catégories parlantes pour un
- * usage grand public, et on s'en sert pour construire les clauses ODSQL envoyées à l'API.
+ * praticables `aps_name` (champ multivalué, ~250 valeurs). On regroupe ces valeurs en
+ * catégories parlantes pour un usage grand public, et on s'en sert pour construire les
+ * clauses ODSQL envoyées à l'API.
+ *
+ * Les deux champs ne disent pas la même chose, et c'est tout l'intérêt de les croiser :
+ *
+ * - `equip_type_name` dit ce que l'équipement **est** (« Terrain de basket-ball ») ;
+ * - `aps_name` dit ce qu'on **peut y pratiquer** (« Basket-Ball »).
+ *
+ * Un city-stade est un seul équipement (`Multisports/City-stades`) qui déclare souvent
+ * basket, foot, hand et volley. Ne filtrer que sur le type revenait à le rendre
+ * introuvable derrière le filtre « Basket », alors qu'on y joue au basket : à l'échelle
+ * de la France, le filtre basket passe de 4 100 à 17 700 équipements une fois les
+ * activités prises en compte, et le filtre handball de 750 à 12 400.
+ *
+ * Deux conséquences volontaires :
+ *
+ * 1. Le croisement n'agit que sur la **recherche**. L'affichage reste piloté par le type
+ *    (`categoryOf`) : un city-stade retrouvé via « Basket » garde son épingle de
+ *    city-stade, il n'est pas dupliqué en une épingle par activité.
+ * 2. Une activité est un signal plus faible qu'un type — un gymnase peut déclarer dix
+ *    activités et remonter sous dix filtres. Les correspondances par activité sont donc
+ *    restreintes au plein air (voir `dataes.ts`) : hors salle pour les catégories
+ *    urbaines, sites naturels compris pour les catégories nature.
  */
 
 export type CategoryId =
@@ -36,12 +58,13 @@ export interface SportCategory {
   emoji: string
   color: string
   group: CategoryGroup
-  /** Valeurs exactes de `equip_type_name`. */
+  /** Valeurs exactes de `equip_type_name` : ce que l'équipement est. */
   types: string[]
-  /** Valeurs exactes de `aps_name` (champ multivalué). */
-  sports?: string[]
-  /** Restreint la catégorie aux équipements de plein air (`equip_nature = 'Découvert'`). */
-  outdoorOnly?: boolean
+  /**
+   * Valeurs exactes de `aps_name` : ce qu'on peut y pratiquer. C'est ce qui fait
+   * remonter un city-stade sous « Basket ». Restreint au plein air à la requête.
+   */
+  sports: string[]
   /** Coché par défaut au premier lancement. */
   defaultOn: boolean
 }
@@ -55,6 +78,7 @@ export const CATEGORIES: SportCategory[] = [
     color: '#0f7b5f',
     group: 'urbain',
     types: ['Multisports/City-stades', 'Terrain mixte'],
+    sports: ['Multisports/sport pour tous'],
     defaultOn: true,
   },
   {
@@ -69,6 +93,7 @@ export const CATEGORIES: SportCategory[] = [
       'Terrain de basket-ball 3x3',
       'But/Panier isolé de sport collectif',
     ],
+    sports: ['Basket-Ball'],
     defaultOn: true,
   },
   {
@@ -84,6 +109,7 @@ export const CATEGORIES: SportCategory[] = [
       'Terrain de soccer',
       'Terrain de futsal extérieur',
     ],
+    sports: ['Football / Football en salle (Futsal)', 'Beach soccer'],
     defaultOn: true,
   },
   {
@@ -94,11 +120,10 @@ export const CATEGORIES: SportCategory[] = [
     color: '#c2185b',
     group: 'urbain',
     // Les tables extérieures n'ont pas de `equip_type_name` dédié (elles sont classées en
-    // « Autres équipements divers » ou rattachées à un city-stade) : on passe par
-    // l'activité praticable, restreinte au plein air.
+    // « Autres équipements divers » ou rattachées à un city-stade) : cette catégorie
+    // repose entièrement sur l'activité praticable.
     types: [],
     sports: ['Tennis de table'],
-    outdoorOnly: true,
     defaultOn: true,
   },
   {
@@ -109,6 +134,7 @@ export const CATEGORIES: SportCategory[] = [
     color: '#8a9b0f',
     group: 'urbain',
     types: ['Court de tennis', 'Mur de tennis', 'Piste de padel'],
+    sports: ['Tennis', 'Padel', 'Pickleball'],
     defaultOn: true,
   },
   {
@@ -128,6 +154,20 @@ export const CATEGORIES: SportCategory[] = [
       'Stade VTT de proximité',
       'Terrain de trial',
     ],
+    // L'activité « Vtt (Cross Country/…) » est volontairement absente : 9 300 des 12 300
+    // équipements qui la déclarent sont des boucles de randonnée, qui inonderaient la
+    // vue urbaine. Elles restent accessibles via la catégorie Randonnée.
+    sports: [
+      'Planche à roulettes (Skate)',
+      'Roller acrobatique',
+      'Rodéo/Freestyle',
+      'Bicross (BMX)',
+      'Trial',
+      'Patinage artistique et danse sur roulettes',
+      'Patinage de course',
+      'Randonnée Roller',
+      'Hockey sur patins en ligne / Hockey sur patins',
+    ],
     defaultOn: true,
   },
   {
@@ -138,6 +178,7 @@ export const CATEGORIES: SportCategory[] = [
     color: '#0d6efd',
     group: 'urbain',
     types: ['Aire de fitness/street workout', 'Parcours sportif/santé', "Parcours d'initiation"],
+    sports: ['Activités de forme et de santé', 'Musculation'],
     defaultOn: true,
   },
   {
@@ -153,6 +194,12 @@ export const CATEGORIES: SportCategory[] = [
       'Terrain de boules traditionnelles',
       'Terrain de quilles',
     ],
+    sports: [
+      'Pétanque et jeu provencal',
+      'Sports boules',
+      'Boules traditionnelles',
+      'Sports de quilles',
+    ],
     defaultOn: true,
   },
   {
@@ -163,6 +210,7 @@ export const CATEGORIES: SportCategory[] = [
     color: '#d4a017',
     group: 'urbain',
     types: ['Terrain de volley-ball', 'Terrain de beach-volley'],
+    sports: ['Volley-ball / Volley-ball de plage (beach-volley) / Green-Volley'],
     defaultOn: true,
   },
   {
@@ -173,6 +221,7 @@ export const CATEGORIES: SportCategory[] = [
     color: '#0e7490',
     group: 'urbain',
     types: ['Terrain de handball'],
+    sports: ['Handball / Mini hand / Handball de plage'],
     defaultOn: true,
   },
   {
@@ -183,6 +232,7 @@ export const CATEGORIES: SportCategory[] = [
     color: '#8c2f39',
     group: 'urbain',
     types: ['Terrain de rugby'],
+    sports: ['Rugby à 15 / Rugby à 7', 'Rugby à 13 / Rugby à 7'],
     defaultOn: true,
   },
   {
@@ -200,6 +250,14 @@ export const CATEGORIES: SportCategory[] = [
       'Aire de lancer',
       'Piste de course sur le plat',
     ],
+    sports: [
+      'Course sur piste',
+      'Course sur le plat',
+      'Cross country',
+      'Course et marche sur route (hors stade)',
+      'Saut',
+      'Lancer',
+    ],
     defaultOn: true,
   },
   {
@@ -216,6 +274,17 @@ export const CATEGORIES: SportCategory[] = [
       'Terrain de ballon au poing/long paume',
       'Terrain de balle au tambourin',
     ],
+    // Le libellé de la pelote basque contient une virgule que le RES a coupée : la valeur
+    // existe dans la base sous forme de deux entrées distinctes, il faut les deux.
+    sports: [
+      'Cesta punta/Mains nues/Pala/Chistera (grande',
+      'joko garbi)/Paleta/Xare/Frontenis/Pala corta/Rebot',
+      'Ballon au poing',
+      'Balle au tambourin',
+      'Longue paume',
+      'Courte paume',
+      'Jeu de Paume',
+    ],
     defaultOn: true,
   },
   {
@@ -226,6 +295,12 @@ export const CATEGORIES: SportCategory[] = [
     color: '#0891b2',
     group: 'urbain',
     types: ['Anneau / piste de cyclisme', 'Terrain de cyclocross', 'Piste de descente'],
+    sports: [
+      'Cyclotourisme',
+      'Cyclisme sur piste',
+      'Cyclisme sur route/Vélo Couché',
+      'Cyclocross',
+    ],
     defaultOn: true,
   },
   {
@@ -236,6 +311,14 @@ export const CATEGORIES: SportCategory[] = [
     color: '#4d7c0f',
     group: 'nature',
     types: ['Boucle de randonnée', 'Parcours fixe de course d’orientation', 'Relais rando-vélo'],
+    sports: [
+      'Randonnée pédestre',
+      'Marche',
+      'Marche Nordique',
+      "Course d'orientation - Pédestre",
+      "Course d'orientation - Vtt",
+      'Raquette à neige',
+    ],
     defaultOn: false,
   },
   {
@@ -251,6 +334,7 @@ export const CATEGORIES: SportCategory[] = [
       "Structure Artificielle d'Escalade",
       'Via ferrata / Via corda',
     ],
+    sports: ['Escalade', 'Escalade sur Via ferrata/Corda', 'Escalade sur PAH'],
     defaultOn: false,
   },
   {
@@ -265,6 +349,23 @@ export const CATEGORIES: SportCategory[] = [
       "Site d'activités aquatiques et nautiques",
       'Stade d’eau vive',
       "Point d'embarquement et de débarquement isolé",
+    ],
+    sports: [
+      'Baignade loisirs',
+      'Natation en eau libre',
+      'Canoë de randonnée',
+      'Kayak de mer',
+      'Nage en eau vive',
+      'Raft (embarcation gonflable)',
+      'Canyonisme',
+      'Surf',
+      'Wave-ski',
+      'Planche à Voile',
+      // Le RES contient les deux orthographes.
+      'Stand up Paddle',
+      'Stand up Padle',
+      'Aviron',
+      "Pirogue polynésienne (Va'a)/Pirogue dragon",
     ],
     defaultOn: false,
   },
@@ -289,10 +390,36 @@ for (const c of CATEGORIES) {
 /** `aps_name` → catégorie, utilisé en repli quand le type d'équipement est générique. */
 const SPORT_TO_CATEGORY = new Map<string, CategoryId>()
 for (const c of CATEGORIES) {
-  for (const s of c.sports ?? []) if (!SPORT_TO_CATEGORY.has(s)) SPORT_TO_CATEGORY.set(s, c.id)
+  for (const s of c.sports) if (!SPORT_TO_CATEGORY.has(s)) SPORT_TO_CATEGORY.set(s, c.id)
 }
 
+/** Activités d'une catégorie, en Set, pour tester l'appartenance sans balayer la liste. */
+const SPORTS_OF_CATEGORY = new Map<CategoryId, ReadonlySet<string>>(
+  CATEGORIES.map((c) => [c.id, new Set(c.sports)]),
+)
+
 export const FALLBACK_CATEGORY: CategoryId = 'citystade'
+
+/**
+ * Catégories filtrées auxquelles un équipement répond par ses **activités**, sans être
+ * de ce type-là — typiquement un city-stade retrouvé sous le filtre « Basket ».
+ *
+ * Sert uniquement à l'affichage : la carte garde une épingle unique, à la catégorie de
+ * l'équipement, et la liste ajoute une mention expliquant pourquoi il est là.
+ */
+export function practicableMatches(
+  equipment: { category: CategoryId; sports: string[] },
+  active: readonly CategoryId[],
+): SportCategory[] {
+  if (!equipment.sports.length) return []
+  const matches: SportCategory[] = []
+  for (const id of active) {
+    if (id === equipment.category) continue
+    const sports = SPORTS_OF_CATEGORY.get(id)
+    if (sports && equipment.sports.some((s) => sports.has(s))) matches.push(CATEGORY_BY_ID[id])
+  }
+  return matches
+}
 
 /** Devine la catégorie d'affichage d'un équipement. */
 export function categoryOf(type: string | null, sports: string[] = []): CategoryId {

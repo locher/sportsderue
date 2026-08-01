@@ -8,7 +8,7 @@
  * les réponses en cache (mémoire + service worker).
  */
 import type { Bbox, Equipment, EquipmentDetail, Filters } from '../types'
-import { CATEGORY_BY_ID, categoryOf, type CategoryId } from './sports'
+import { CATEGORY_BY_ID, categoryOf, type CategoryGroup, type CategoryId } from './sports'
 
 const DATASET_URL =
   'https://equipements.sports.gouv.fr/api/explore/v2.1/catalog/datasets/data-es'
@@ -80,21 +80,53 @@ function inList(field: string, values: string[]): string {
   return `${field} IN (${values.map(quote).join(', ')})`
 }
 
-/** Prédicat d'une catégorie de sport : types d'équipement et/ou activités praticables. */
-function categoryPredicate(id: CategoryId): string | null {
-  const category = CATEGORY_BY_ID[id]
-  if (!category) return null
+function unique(values: string[]): string[] {
+  return [...new Set(values)]
+}
+
+/**
+ * Prédicat des catégories cochées.
+ *
+ * Un équipement est retenu s'il **est** du bon type (`equip_type_name`) ou si l'activité
+ * cherchée y **est praticable** (`aps_name`) : c'est cette seconde branche qui fait
+ * remonter un city-stade sous le filtre « Basket », un plateau multisports sous
+ * « Handball », etc.
+ *
+ * Le type est un signal fort, l'activité un signal faible — un gymnase peut déclarer dix
+ * activités et remonter sous dix filtres. La branche « activité » est donc restreinte au
+ * plein air : hors salle pour les catégories urbaines, sites naturels compris pour les
+ * catégories nature (une baignade aménagée n'est ni « Découvert » ni en salle).
+ *
+ * Les valeurs sont mises en commun entre catégories plutôt qu'un prédicat par catégorie :
+ * le résultat est identique (une union de disjonctions) mais l'URL reste deux fois plus
+ * courte, ce qui compte avec 17 catégories cochées.
+ */
+function categoriesPredicate(ids: CategoryId[]): string {
+  const categories = ids.map((id) => CATEGORY_BY_ID[id]).filter(Boolean)
+  const sportsOf = (group: CategoryGroup) =>
+    unique(categories.filter((c) => c.group === group).flatMap((c) => c.sports))
+
+  const types = unique(categories.flatMap((c) => c.types))
+  const urbanSports = sportsOf('urbain')
+  const natureSports = sportsOf('nature')
 
   const alternatives: string[] = []
-  if (category.types.length) alternatives.push(inList('equip_type_name', category.types))
-  if (category.sports?.length) alternatives.push(inList('aps_name', category.sports))
-  if (!alternatives.length) return null
+  if (types.length) alternatives.push(inList('equip_type_name', types))
+  if (urbanSports.length) {
+    alternatives.push(
+      `(${inList('aps_name', urbanSports)} AND ${inList('equip_nature', OPEN_AIR_NATURES)})`,
+    )
+  }
+  if (natureSports.length) {
+    alternatives.push(
+      `(${inList('aps_name', natureSports)} AND ${inList('equip_nature', OUTDOOR_NATURES)})`,
+    )
+  }
 
-  const clauses = [
-    alternatives.length > 1 ? `(${alternatives.join(' OR ')})` : alternatives[0],
-  ]
-  if (category.outdoorOnly) clauses.push(inList('equip_nature', OPEN_AIR_NATURES))
-  return `(${clauses.join(' AND ')})`
+  // Aucune catégorie cochée : on ne renvoie rien plutôt que la France entière. ODSQL n'a
+  // pas de littéral booléen (`FALSE` est une erreur de syntaxe), d'où la comparaison.
+  if (!alternatives.length) return '1 = 2'
+  return `(${alternatives.join(' OR ')})`
 }
 
 /** Construit la clause `where` complète à partir des filtres actifs. */
@@ -102,14 +134,8 @@ export function buildWhere(filters: Filters, extra?: string): string {
   const clauses: string[] = [
     'equip_acc_libre = "true"',
     inList('equip_prop_type', PUBLIC_OWNER_TYPES),
+    categoriesPredicate(filters.categories),
   ]
-
-  const categoryClauses = filters.categories
-    .map(categoryPredicate)
-    .filter((c): c is string => c !== null)
-
-  // Aucune catégorie cochée : on ne renvoie rien plutôt que la France entière.
-  clauses.push(categoryClauses.length ? `(${categoryClauses.join(' OR ')})` : 'FALSE')
 
   if (filters.outdoorOnly) clauses.push(inList('equip_nature', OUTDOOR_NATURES))
   if (filters.litOnly) clauses.push('equip_eclair = "true"')
