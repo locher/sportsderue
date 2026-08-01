@@ -60,6 +60,12 @@ est conservé), ainsi que `indoor=yes` et `fee=yes`. Une aire **sans** étiquett
 est retenue : c'est le cas le plus fréquent, et l'absence d'étiquette n'est pas une
 restriction.
 
+Ce tri est fait à la réception, et la requête ne porte qu'un seul critère de tag. Une
+expression `!~` interdit à Overpass d'utiliser son index et lui fait balayer toute
+l'emprise : sur une vue de 346 km², la même requête passe de **19,1 s à 1,4 s** une fois
+les exclusions sorties de la requête. Le résultat est identique, pour 8 % de données
+transférées en plus.
+
 ### Quels équipements sont retenus ?
 
 La sélection est faite côté API (`src/lib/dataes.ts`) :

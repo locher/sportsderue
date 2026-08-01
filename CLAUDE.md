@@ -264,14 +264,26 @@ Ce qu'il faut savoir avant d'y toucher :
   cochent paient l'appel), effet **séparé** de celui de Data ES dans `useEquipments` (une
   lenteur d'OSM ne doit jamais retenir les terrains de basket), et échec en simple
   **avertissement** au-dessus de la liste — jamais en erreur bloquante.
-- **Filtres d'accès posés côté serveur**, en miroir du filtre « propriétaire public » du
-  RES : `access` valant `private|customers|no|permit|members|residents` écarté (`customers`
-  élimine les aires de McDonald's), plus `indoor=yes` et `fee=yes`. Une expression `!~`
-  retient aussi les objets **sans** l'étiquette — c'est voulu, l'absence d'`access` est le
-  cas majoritaire et ne vaut pas restriction.
-- **`lit` et `wheelchair` sont filtrés côté client, pas dans la requête** : une aire sans
-  étiquette `lit` n'est pas une aire non éclairée, elle est non renseignée. Les poser côté
-  serveur ferait passer une lacune de saisie pour une réponse.
+- **La requête ne porte qu'un seul critère de tag**, `leisure=playground`, et rien
+  d'autre. Tout le reste du tri se fait à la réception. Ce n'est pas un choix de style :
+  les exclusions d'accès étaient d'abord posées dans la requête en `["access"!~"…"]`, et
+  une expression `!~` **interdit à Overpass d'utiliser son index de tags** — il balaie
+  alors toute l'emprise. Mesuré sur une vue de 346 km² autour de Valence, la même requête
+  passe de **19,1 s à 1,4 s** une fois les `!~` retirés. C'est ce qui rendait la catégorie
+  inutilisable sur un téléphone (signalé depuis le terrain, le message affiché était
+  « OpenStreetMap n'a pas répondu à temps »). Décomposition mesurée des 19 s : ~2,4 s de
+  recherche, ~5,7 s pour `out center`, ~8 s pour les seules expressions `!~`.
+  Ne pas les y remettre. Le tri client coûte 8 % de données en plus (18 ko → 20 ko).
+- **Deux tris côté client, pour deux raisons différentes** — ne pas les confondre :
+  - `access` (`private|customers|no|permit|members|residents`, `customers` élimine les
+    aires de McDonald's), `indoor=yes` et `fee=yes` : c'est le miroir du filtre
+    « propriétaire public » du RES. L'absence d'étiquette vaut autorisation, c'est le cas
+    majoritaire. Déplacé côté client **pour la vitesse**, à résultat identique — vérifié
+    sur l'emprise de Valence : 114 objets reçus, 107 retenus, exactement comme la requête
+    filtrée d'avant.
+  - `lit` et `wheelchair` : ceux-là ne pourraient **pas** être posés côté serveur sans
+    mentir. Une aire sans étiquette `lit` n'est pas une aire non éclairée, elle est non
+    renseignée — le filtre ferait passer une lacune de saisie pour une réponse.
 - **Le piège du relais Playwright** : Overpass répond **406** à `User-Agent: node`, celui
   que Node met par défaut. Le relais doit réexpédier les en-têtes du navigateur. Ce n'est
   pas un bug de l'application — un vrai navigateur passe.

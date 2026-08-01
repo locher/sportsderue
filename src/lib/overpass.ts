@@ -70,6 +70,23 @@ export function playgroundRecordUrl(id: string): string {
  */
 const CLOSED_ACCESS = ['private', 'customers', 'no', 'permit', 'members', 'residents']
 
+/**
+ * Aire ouverte à tous, en plein air et gratuite — l'équivalent OSM du filtre
+ * « accès libre + propriétaire public » appliqué au RES. L'absence d'étiquette vaut
+ * autorisation : c'est le cas majoritaire, et une lacune de saisie n'est pas une
+ * restriction.
+ *
+ * Ce tri était d'abord posé **dans la requête**, en `["access"!~"…"]`. À ne pas y
+ * remettre : une expression `!~` interdit à Overpass d'utiliser son index de tags et
+ * lui fait balayer toute l'emprise. Mesuré sur une vue de 346 km² autour de Valence,
+ * **19,1 s avec, 1,4 s sans** — c'est ce qui rendait la catégorie inutilisable sur un
+ * téléphone. Trier ici coûte 8 % de données transférées en plus (18 ko → 20 ko).
+ */
+function isOpenToAll(tags: Record<string, string>): boolean {
+  if (tags.access && CLOSED_ACCESS.includes(tags.access)) return false
+  return tags.indoor !== 'yes' && tags.fee !== 'yes'
+}
+
 /** Équipements de jeu (`playground=*`), traduits pour la liste « Activités ». */
 const FEATURES: Record<string, string> = {
   slide: 'Toboggan',
@@ -146,21 +163,15 @@ function bboxClause(bbox: Bbox): string {
 }
 
 /**
- * Construit la requête Overpass QL. Les exclusions sont posées côté serveur : une
- * expression `!~` retient aussi les objets **sans** l'étiquette, ce qui est exactement
- * ce qu'on veut (une aire non étiquetée `access` est publique par défaut).
+ * Construit la requête Overpass QL, volontairement réduite à **un seul critère de
+ * tag** : c'est le seul que l'index sache servir. Tout le reste du tri se fait à la
+ * réception (voir `isOpenToAll`), pour une raison de vitesse mesurée, pas de style.
  *
  * `nwr` couvre les trois primitives : deux aires de jeux sur trois sont dessinées en
  * polygone, `out center` les ramène toutes à un point.
  */
 export function buildQuery(bbox: Bbox, limit = MAX_PLAYGROUNDS): string {
-  const filters = [
-    '["leisure"="playground"]',
-    `["access"!~"^(${CLOSED_ACCESS.join('|')})$"]`,
-    '["indoor"!="yes"]',
-    '["fee"!="yes"]',
-  ].join('')
-  return `[out:json][timeout:${SERVER_TIMEOUT_S}];nwr${filters}${bboxClause(bbox)};out tags center ${limit};`
+  return `[out:json][timeout:${SERVER_TIMEOUT_S}];nwr["leisure"="playground"]${bboxClause(bbox)};out tags center ${limit};`
 }
 
 function str(value: string | undefined): string | null {
@@ -323,9 +334,9 @@ async function runQuery(query: string, signal?: AbortSignal): Promise<OverpassRe
   }
 }
 
-function toPlaygrounds(data: OverpassResponse): EquipmentDetail[] {
+function toPlaygrounds(elements: OverpassElement[]): EquipmentDetail[] {
   const items: EquipmentDetail[] = []
-  for (const element of data.elements ?? []) {
+  for (const element of elements) {
     const item = toPlayground(element)
     if (item) items.push(item)
   }
@@ -339,12 +350,18 @@ export async function fetchPlaygroundsInBbox(
   signal?: AbortSignal,
 ): Promise<PlaygroundsResult> {
   const data = await runQuery(buildQuery(bbox), signal)
-  let items = toPlaygrounds(data)
-  const truncated = items.length >= MAX_PLAYGROUNDS
+  const elements = data.elements ?? []
 
-  // Ces deux filtres ne peuvent pas être posés dans la requête sans mentir : une aire
-  // sans étiquette `lit` n'est pas une aire non éclairée, elle est non renseignée.
-  // On applique donc le même filtre strict que le RES, ici, après coup.
+  // Le plafond est appliqué par Overpass, donc avant nos propres tris : c'est bien le
+  // nombre brut reçu qui dit si la vue a été coupée.
+  const truncated = elements.length >= MAX_PLAYGROUNDS
+
+  let items = toPlaygrounds(elements.filter((element) => isOpenToAll(element.tags ?? {})))
+
+  // Ces deux filtres-là ne peuvent pas non plus être posés dans la requête, mais pour
+  // une autre raison : une aire sans étiquette `lit` n'est pas une aire non éclairée,
+  // elle est non renseignée. Les poser côté serveur ferait passer une lacune de
+  // saisie pour une réponse.
   if (filters.litOnly) items = items.filter((item) => item.lit)
   if (filters.accessibleOnly) items = items.filter((item) => item.accessible)
 
@@ -364,5 +381,7 @@ export async function fetchPlaygroundDetail(
   if (!match) return null
   const query = `[out:json][timeout:${SERVER_TIMEOUT_S}];${match[1]}(${match[2]});out tags center;`
   const data = await runQuery(query, signal)
-  return toPlaygrounds(data)[0] ?? null
+  // Pas de tri sur l'accès ici : un lien partagé désigne un point précis, on montre
+  // ce qu'il désigne.
+  return toPlaygrounds(data.elements ?? [])[0] ?? null
 }
