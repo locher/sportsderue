@@ -185,6 +185,15 @@ Opendatasoft Explore v2.1, dataset `data-es`, sans clé, CORS ouvert :
 - `/records` plafonne à **100** résultats par appel (`-1 <= limit <= 100`). D'où l'usage de
   `/exports/geojson`, qui renvoie tout en un appel ; la géométrie vient du champ
   `equip_coordonnees`, les autres champs sélectionnés deviennent les `properties`.
+- **Toujours passer `select`**, y compris sur une fiche unique : sans lui, `/records`
+  renvoie les **114 champs** de l'enregistrement (3 457 octets mesurés) là où la fiche en
+  affiche 31 (1 063 octets). Les deux tiers du transfert partaient en bassins, tribunes,
+  homologations et découpages administratifs que rien ne lit. Corollaire : une donnée
+  nouvellement affichée doit être ajoutée à `DETAIL_FIELDS`, sinon elle arrive vide.
+- L'échappement de `quote()` est **sûr et vérifié contre l'API réelle** : une valeur forgée
+  `a\" OR equip_numero LIKE "b` ressort en `ODSQLSyntaxError`, pas en clause élargie.
+  C'est le seul point d'entrée d'une chaîne extérieure (l'identifiant d'un lien partagé) :
+  ne jamais le remplacer par une interpolation directe.
 - `/facets` ne renvoie que les **100 premières valeurs** d'une facette : ne pas en conclure
   qu'une liste est exhaustive.
 - **Quota : 5 000 appels/jour et par IP**, remise à zéro à minuit UTC (en-têtes
@@ -481,6 +490,110 @@ Les modifier sans y penser dégrade l'expérience :
   bout de carte tronqué dès que le titre passait sur deux lignes.
 - État partagé dans l'URL : `lat`, `lng`, `z`, `s` (sports), `f` (drapeaux), `e`
   (équipement). Filtres mémorisés sous `sportsderue.filters.v1`.
+
+## Ce qui doit garder son identité entre deux rendus
+
+Tout part de la même mécanique : **la vue change à chaque fin de déplacement**, et tout ce
+qui en descend est refabriqué. Trois verrous posés en août 2026, à ne pas défaire — chacun
+répare une dépense qui ne se voyait pas à la lecture du code.
+
+1. **`origin` (App).** C'est le point d'où partent les distances. Seule sa *valeur* compte,
+   jamais son identité : c'est elle qui déclenche le recalcul des distances et le tri de
+   toute la liste. Il était refabriqué à chaque `moveend` alors qu'il vaut la position GPS
+   — donc la même chose — tant qu'on se promène à moins de 30 km. D'où le verrou par
+   comparaison de valeur (`lastOrigin`).
+2. **`mapItems` contre `items` (`useEquipments`).** La carte n'a besoin ni du tri ni des
+   distances, et réinstaller sa source GeoJSON coûte un **reclustering complet**. Elle
+   reçoit donc `mapItems`, dont l'identité ne change que quand les données changent
+   vraiment. La liste, elle, reçoit `items` — triés, distancés.
+3. **`EquipmentRow` mémoïsée + `onSelect` stable.** La feuille affiche jusqu'à 1 500 lignes
+   et se redessine pour des raisons qui ne les concernent pas (hauteur du panneau, barre de
+   chargement, sélection). `onSelect` (App) lit donc ce dont il a besoin dans des refs au
+   lieu de le capturer en dépendance : sans identité stable, la mémoïsation ne sert à rien.
+
+Le symptôme le plus visible de cette famille, corrigé au passage : **la fiche d'équipement
+se rechargeait à chaque mouvement de carte**. Son effet se calait sur l'objet `equipment`,
+refabriqué par le recalcul des distances — or ouvrir une fiche recentre la carte. Mesuré
+sur un parcours Playwright, une seule tape sur un équipement hors écran déclenchait
+**4 appels réseau au lieu de 1**, et rejouait « Chargement de la fiche… » sur une fiche déjà
+affichée. L'effet ne suit désormais que `equipment.id` et `equipment.source`.
+
+Les épingles, enfin, sont mises en cache (`pinCache`) : `setStyle()` vide les images de la
+carte, et les dix-huit gouttes étaient redessinées au canvas au passage du style provisoire
+au style thématisé — au pire moment.
+
+## Le jour où ça quittera Netlify
+
+C'est prévu (« un service perso »), et le danger n'est pas la migration elle-même — un
+site statique se recopie — mais **ce que Netlify fait sans qu'on le lui demande** et qui
+disparaîtrait sans bruit :
+
+- **la compression** (`content-encoding: br` sur tout) : un nginx nu ne compresse rien, et
+  les 936 ko de MapLibre partiraient bruts au lieu de ~243 ko ;
+- **HSTS**, qu'il pose de lui-même (`max-age=31536000; includeSubDomains; preload`) ;
+- **HTTPS et son certificat**.
+
+Et surtout, la règle dont tout dépend : `sw.js`, `index.html` et `manifest.webmanifest`
+**toujours revalidés**. Un `max-age` sur l'un des trois et l'application installée reste
+figée sur son ancienne version — c'est le symptôme signalé depuis un téléphone, celui qui
+obligeait à vider le cache à la main. Rien ne le signale, l'application marche.
+
+Trois choses sont donc en place, à tenir à jour ensemble :
+
+- `deploy/Caddyfile` — le chemin le plus court : Caddy gère certificat, compression et
+  types MIME tout seul, et n'a pas le piège d'héritage de nginx.
+- `deploy/nginx/` — deux fichiers, et ce n'est pas de la coquetterie : **dès qu'un bloc
+  `location` déclare un `add_header`, il perd tous ceux hérités du parent**. Comme chaque
+  `location` pose son propre `Cache-Control`, les en-têtes de sécurité s'évaporeraient de
+  tout ce qui n'est pas l'accueil. D'où le fichier inclus dans *chaque* `location`.
+- `scripts/verifie-deploiement.mjs` — **l'arbitre**. Il ne connaît pas l'hébergeur,
+  seulement le contrat, et se lance contre n'importe quelle URL :
+  `npm run verifie-deploiement -- https://mon-site.fr`. C'est lui qui empêche les trois
+  configurations de diverger : plutôt que de les comparer entre elles, on vérifie ce que
+  le site sert réellement.
+
+Ni nginx ni Caddy n'ont pu être exécutés dans le conteneur (pas de démon Docker) : les
+configurations sont écrites, pas éprouvées. Le *contrat*, lui, l'est — un serveur local
+appliquant les mêmes règles passe le contrôle, et le parcours complet de l'application y
+tourne sans erreur. La première mise en ligne doit donc commencer par le script.
+
+## Les en-têtes de sécurité et la CSP
+
+Tout tient dans le bloc `[[headers]]` `for = "/*"` de `netlify.toml`, posé en août 2026 :
+politique de sécurité du contenu (CSP), `X-Frame-Options`, `X-Content-Type-Options`,
+`Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`. HSTS n'y est pas :
+Netlify le pose déjà lui-même (`max-age=31536000; includeSubDomains; preload`).
+
+Deux points qui méritent d'être compris avant d'y toucher :
+
+- **`Referrer-Policy` compte ici plus qu'ailleurs.** Les URL de l'application portent
+  `lat`, `lng` et l'équipement consulté, et l'application ouvre des liens vers Google Maps,
+  Apple Maps et OpenStreetMap. `strict-origin-when-cross-origin` fait qu'ils n'emportent
+  que l'origine — sinon c'est la position de la personne qui part chez un tiers.
+- **`connect-src` énumère les deux services** encore appelés depuis le navigateur
+  (`data.geopf.fr`, `equipements.sports.gouv.fr`). Les aires de jeux n'y sont plus depuis
+  qu'elles sont livrées avec l'application : servies depuis le site, elles relèvent de
+  `'self'`. Toute nouvelle source de données doit y être ajoutée, sinon ses appels sont
+  refusés — et c'est bien le but. `style-src` garde
+  `'unsafe-inline'` (la charte pose beaucoup de couleurs de sport en ligne, et une feuille
+  injectée ne vaut pas un script) ; `worker-src` accepte `blob:` au cas où MapLibre
+  basculerait sur un worker en blob.
+
+La CSP a d'abord vécu en `<meta>` dans `index.html`, le temps que le site soit protégé par
+mot de passe : un en-tête se serait appliqué à la page d'authentification de Netlify,
+invisible d'ici et donc intestable. **Le site est public depuis août 2026**
+(`sportsderue.netlify.app`), la CSP est revenue en en-tête, où elle vaut avant l'analyse du
+document, sur toutes les réponses et pas seulement sur le HTML — et où `frame-ancestors`
+fonctionne, ce qui n'est pas le cas en `<meta>`. Si le mot de passe revenait un jour, il
+faudrait vérifier que la page d'authentification survit à `script-src 'self'`.
+
+Vérifié au navigateur sur le build de production, en servant `dist` derrière un serveur qui
+**relit les en-têtes dans `netlify.toml`** (le test porte donc sur ce qui est livré) :
+parcours complet, plus les deux chemins qu'il ne touche pas et que la CSP pouvait couper —
+le chargement des aires de jeux (catégorie « Jeux ») et l'ouverture par lien partagé
+(`?e=…`). Zéro violation, zéro erreur de console. La mise en cadre depuis une autre
+origine est bien refusée : le cadre demande le document mais n'exécute aucun script, là où
+un chargement direct en charge quatre.
 
 ## Choix assumés, à ne pas « corriger »
 

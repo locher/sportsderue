@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Equipment } from '../types'
 import { categoryStyle, practicableMatches, readableOn, type CategoryId } from '../lib/sports'
 import { formatDistance } from '../lib/geo'
@@ -117,6 +117,16 @@ export function ResultsPanel({
   }
 
   const expand = useCallback(() => setSnap((s) => (s === 0 ? 1 : s)), [])
+
+  // Identité stable : c'est ce qui permet aux lignes de ne pas se redessiner quand seule
+  // la hauteur de la feuille, l'état de chargement ou la sélection changent.
+  const pick = useCallback(
+    (id: string) => {
+      expand()
+      onSelect(id)
+    },
+    [expand, onSelect],
+  )
 
   const count = items.length
   // Titre court : il doit tenir sur une ligne, l'en-tête sert de repli d'aperçu.
@@ -242,10 +252,7 @@ export function ResultsPanel({
                 item={item}
                 activeCategories={activeCategories}
                 selected={item.id === selectedId}
-                onClick={() => {
-                  expand()
-                  onSelect(item.id)
-                }}
+                onSelect={pick}
               />
             </li>
           ))}
@@ -290,16 +297,22 @@ function EmptyState({
   )
 }
 
-function EquipmentRow({
+/**
+ * Une ligne de la liste. Mémoïsée : la feuille en affiche jusqu'à 1 500, et elle se
+ * redessine pour bien d'autres raisons que les résultats — hauteur du panneau, barre de
+ * chargement, changement de sélection. Sans cette barrière, chacune de ces raisons
+ * refaisait tourner `practicableMatches` et le calcul de couleur sur toute la liste.
+ */
+const EquipmentRow = memo(function EquipmentRow({
   item,
   activeCategories,
   selected,
-  onClick,
+  onSelect,
 }: {
   item: Equipment
   activeCategories: CategoryId[]
   selected: boolean
-  onClick: () => void
+  onSelect: (id: string) => void
 }) {
   const category = categoryStyle(item.category)
   const place = [item.city, item.postcode].filter(Boolean).join(' · ')
@@ -319,7 +332,7 @@ function EquipmentRow({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => onSelect(item.id)}
       aria-current={selected ? 'true' : undefined}
       className={`springy flex w-full items-center gap-3 rounded-[26px] p-3 text-left ${
         selected ? 'bg-lime' : 'bg-canvas'
@@ -389,4 +402,4 @@ function EquipmentRow({
       )}
     </button>
   )
-}
+})

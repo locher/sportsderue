@@ -71,12 +71,25 @@ export default function App() {
 
   // Les distances sont comptées depuis la position GPS tant qu'on explore la même
   // région ; au-delà (recherche d'une autre ville), depuis le centre de la carte.
+  //
+  // Seule la **valeur** de ce point compte, jamais son identité : c'est elle qui
+  // déclenche le recalcul des distances et le tri de toute la liste. Sans le verrou
+  // ci-dessous, chaque fin de déplacement en fabriquait un nouvel objet — donc un tri
+  // complet et un rendu de toutes les cartes de la liste — alors que le point de
+  // référence n'avait pas bougé d'un mètre. C'est le cas courant : on est géolocalisé
+  // et on se promène dans sa ville, `me` est renvoyé à l'identique à chaque fois.
+  const lastOrigin = useRef<LngLat | null>(null)
   const origin: LngLat | null = useMemo(() => {
     const center = view ? { lon: view.position.lon, lat: view.position.lat } : null
-    if (!geo.position) return center
-    const me = { lon: geo.position.lon, lat: geo.position.lat }
-    if (!center) return me
-    return distanceMeters(me, center) < 30_000 ? me : center
+    const me = geo.position ? { lon: geo.position.lon, lat: geo.position.lat } : null
+    const next = !me ? center : !center ? me : distanceMeters(me, center) < 30_000 ? me : center
+
+    const previous = lastOrigin.current
+    if (previous && next && previous.lon === next.lon && previous.lat === next.lat) {
+      return previous
+    }
+    lastOrigin.current = next
+    return next
   }, [geo.position, view])
 
   const equipments = useEquipments({
@@ -162,15 +175,21 @@ export default function App() {
     )
   }, [selectedId, equipments.items, linkedEquipment])
 
-  const onSelect = useCallback(
-    (id: string | null) => {
-      setSelectedId(id)
-      if (!id) return
-      const item = equipments.items.find((entry) => entry.id === id)
-      if (item) map.current?.focus(item, Math.min(viewportHeight * 0.6, 420))
-    },
-    [equipments.items, viewportHeight],
-  )
+  // La sélection est déclenchée depuis la carte comme depuis la liste, qui compte
+  // jusqu'à 1 500 lignes : ce rappel doit garder la même identité d'un rendu à l'autre,
+  // sinon aucune ligne ne peut être mémoïsée. Ce dont il a besoin est lu au moment de
+  // la tape, dans des refs, plutôt que capturé dans une dépendance.
+  const latestItems = useRef(equipments.items)
+  latestItems.current = equipments.items
+  const latestHeight = useRef(viewportHeight)
+  latestHeight.current = viewportHeight
+
+  const onSelect = useCallback((id: string | null) => {
+    setSelectedId(id)
+    if (!id) return
+    const item = latestItems.current.find((entry) => entry.id === id)
+    if (item) map.current?.focus(item, Math.min(latestHeight.current * 0.6, 420))
+  }, [])
 
   const locateMe = useCallback(() => {
     setFollowUser(true)
@@ -203,7 +222,7 @@ export default function App() {
       <MapView
         ref={map}
         initialPosition={initialPosition}
-        items={equipments.items}
+        items={equipments.mapItems}
         selectedId={selectedId}
         userPosition={geo.position}
         onViewChange={onViewChange}
