@@ -522,32 +522,39 @@ au style thématisé — au pire moment.
 
 ## Les en-têtes de sécurité et la CSP
 
-Posés en août 2026, et **répartis entre deux fichiers pour une raison précise** :
+Tout tient dans le bloc `[[headers]]` `for = "/*"` de `netlify.toml`, posé en août 2026 :
+politique de sécurité du contenu (CSP), `X-Frame-Options`, `X-Content-Type-Options`,
+`Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`. HSTS n'y est pas :
+Netlify le pose déjà lui-même (`max-age=31536000; includeSubDomains; preload`).
 
-- `netlify.toml` porte les en-têtes qui ne peuvent rien casser ailleurs :
-  `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy` (les URL portent la
-  position et l'équipement consulté, elles ne doivent pas fuiter vers Google Maps ou OSM),
-  `Permissions-Policy` (géolocalisation pour soi, tout le reste coupé) et
-  `Cross-Origin-Opener-Policy`.
-- `index.html` porte la **CSP, en `<meta>`**. Pas en en-tête : le site est protégé par mot
-  de passe, un en-tête s'appliquerait aussi à la page d'authentification de Netlify — que je
-  ne peux ni voir ni tester, et dont un `script-src` mal placé bloquerait la connexion.
-  En `<meta>`, la politique ne vaut que pour ce document.
+Deux points qui méritent d'être compris avant d'y toucher :
 
-Les deux fichiers se répondent : `frame-ancestors` **est ignoré en `<meta>`**, c'est
-`X-Frame-Options` qui tient ce rôle. Ne pas modifier l'un sans l'autre.
+- **`Referrer-Policy` compte ici plus qu'ailleurs.** Les URL de l'application portent
+  `lat`, `lng` et l'équipement consulté, et l'application ouvre des liens vers Google Maps,
+  Apple Maps et OpenStreetMap. `strict-origin-when-cross-origin` fait qu'ils n'emportent
+  que l'origine — sinon c'est la position de la personne qui part chez un tiers.
+- **`connect-src` énumère les trois services** (`data.geopf.fr`,
+  `equipements.sports.gouv.fr`, `overpass-api.de`). Toute nouvelle source de données doit y
+  être ajoutée, sinon ses appels sont refusés — et c'est bien le but. `style-src` garde
+  `'unsafe-inline'` (la charte pose beaucoup de couleurs de sport en ligne, et une feuille
+  injectée ne vaut pas un script) ; `worker-src` accepte `blob:` au cas où MapLibre
+  basculerait sur un worker en blob.
 
-`connect-src` énumère les trois services (`data.geopf.fr`,
-`equipements.sports.gouv.fr`, `overpass-api.de`) : **toute nouvelle source de données doit y
-être ajoutée**, sinon ses appels sont refusés — et c'est bien le but, rien ne peut partir
-ailleurs. `style-src` garde `'unsafe-inline'` (la charte pose beaucoup de couleurs de sport
-en ligne, et une feuille injectée ne vaut pas un script) ; `worker-src` accepte `blob:` par
-sécurité, MapLibre basculant sur un worker en blob si jamais son URL devenait distante.
+La CSP a d'abord vécu en `<meta>` dans `index.html`, le temps que le site soit protégé par
+mot de passe : un en-tête se serait appliqué à la page d'authentification de Netlify,
+invisible d'ici et donc intestable. **Le site est public depuis août 2026**
+(`sportsderue.netlify.app`), la CSP est revenue en en-tête, où elle vaut avant l'analyse du
+document, sur toutes les réponses et pas seulement sur le HTML — et où `frame-ancestors`
+fonctionne, ce qui n'est pas le cas en `<meta>`. Si le mot de passe revenait un jour, il
+faudrait vérifier que la page d'authentification survit à `script-src 'self'`.
 
-Vérifié au navigateur sur le build de production, parcours complet **plus** les deux
-chemins que le parcours principal ne touche pas et que la CSP pouvait couper : l'appel
-Overpass de la catégorie « Jeux » (56 aires chargées) et l'ouverture par lien partagé
-(`?e=…`). Zéro violation, zéro erreur de console.
+Vérifié au navigateur sur le build de production, en servant `dist` derrière un serveur qui
+**relit les en-têtes dans `netlify.toml`** (le test porte donc sur ce qui est livré) :
+parcours complet, plus les deux chemins qu'il ne touche pas et que la CSP pouvait couper —
+l'appel Overpass de la catégorie « Jeux » (56 aires chargées) et l'ouverture par lien
+partagé (`?e=…`). Zéro violation, zéro erreur de console. La mise en cadre depuis une autre
+origine est bien refusée : le cadre demande le document mais n'exécute aucun script, là où
+un chargement direct en charge quatre.
 
 ## Choix assumés, à ne pas « corriger »
 

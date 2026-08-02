@@ -17,15 +17,23 @@
 
 # En-têtes de sécurité, sur toutes les réponses.
 #
-# Volontairement limités à ce qui ne peut rien casser d'autre : la politique de sécurité
-# du contenu (CSP), elle, est posée en `<meta>` dans `index.html` pour ne pas s'appliquer
-# à la page d'authentification de Netlify (le site est protégé par mot de passe, et cette
-# page m'est invisible). Seul `X-Frame-Options` fait exception : `frame-ancestors` est
-# ignoré en `<meta>`, il n'y a que l'en-tête pour interdire la mise en cadre. Les deux
-# fichiers se répondent, ne pas en modifier un sans l'autre.
+# La politique de sécurité du contenu (CSP) a d'abord vécu en `<meta>` dans `index.html`,
+# le temps que le site soit protégé par mot de passe : un en-tête se serait appliqué à la
+# page d'authentification de Netlify, invisible d'ici et donc intestable. Le site est
+# public depuis août 2026, la CSP est revenue là où elle est le plus efficace — en
+# en-tête, elle vaut avant l'analyse du document, sur toutes les réponses et pas
+# seulement sur le HTML, et `frame-ancestors` y fonctionne (il est ignoré en `<meta>`).
+#
+# `connect-src` énumère les trois services de l'application : toute nouvelle source de
+# données doit y être ajoutée, sinon ses appels seront refusés — et c'est le but, aucune
+# donnée ne peut partir ailleurs. `style-src` garde 'unsafe-inline' (la charte pose
+# beaucoup de couleurs de sport en ligne, et une feuille injectée ne vaut pas un script),
+# `worker-src` accepte blob: au cas où MapLibre basculerait sur un worker en blob.
 [[headers]]
   for = "/*"
   [headers.values]
+    Content-Security-Policy = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://data.geopf.fr https://equipements.sports.gouv.fr https://overpass-api.de"
+    # Doublon assumé de `frame-ancestors`, pour les navigateurs qui ne lisent que celui-ci.
     # Aucune raison d'afficher la carte dans le cadre d'un autre site : c'est la porte
     # ouverte au détournement de clic (un bouton invisible posé par-dessus).
     X-Frame-Options = "DENY"
