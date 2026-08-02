@@ -78,3 +78,7 @@
   for = "/manifest.webmanifest"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+    # Netlify le sert en `application/octet-stream` faute de connaître l'extension. Les
+    # navigateurs s'en accommodent aujourd'hui, mais rien ne l'oblige : autant nommer le
+    # type que la spécification prévoit.
+    Content-Type = "application/manifest+json"

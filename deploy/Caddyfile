@@ -1,0 +1,42 @@
+# Sports de rue — service Caddy, équivalent de `netlify.toml`.
+#
+# Caddy est le chemin le plus court hors Netlify : il obtient et renouvelle le certificat
+# tout seul, compresse tout seul (gzip + zstd), connaît `.webmanifest`, et n'a pas le
+# piège d'héritage des en-têtes de nginx. Il ne reste à écrire que ce qui est propre au
+# projet — c'est-à-dire les règles de cache et les en-têtes de sécurité.
+#
+# Vérifier après mise en ligne : npm run verifie-deploiement -- https://mon-site.fr
+
+sportsderue.example.fr {
+	root * /var/www/sportsderue
+
+	encode zstd gzip
+
+	# --- En-têtes de sécurité, identiques à `netlify.toml` ---------------------------
+	header {
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://data.geopf.fr https://equipements.sports.gouv.fr https://overpass-api.de"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=(), accelerometer=(), gyroscope=(), magnetometer=(), interest-cohort=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		# Netlify posait HSTS de lui-même ; Caddy non. Retirer `preload` si le domaine
+		# n'est pas réellement soumis à la liste de préchargement.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Caddy annonce sa présence par défaut : inutile de le dire.
+		-Server
+	}
+
+	# --- Fichiers à empreinte : leur nom change avec leur contenu ---------------------
+	@empreinte path /assets/* /workbox-*.js
+	header @empreinte Cache-Control "public, max-age=31536000, immutable"
+
+	# --- Fichiers à nom stable : ce sont eux qui annoncent une nouvelle version -------
+	# Un cache ici et l'application installée reste figée, sans rien signaler.
+	@stables path /sw.js /index.html /manifest.webmanifest /
+	header @stables Cache-Control "public, max-age=0, must-revalidate"
+
+	# Repli page unique.
+	try_files {path} /index.html
+	file_server
+}

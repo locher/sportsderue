@@ -135,10 +135,45 @@ sans quoi la géolocalisation et le service worker sont désactivés par les nav
 ### Déploiement
 
 - **Netlify / Vercel** — importer le dépôt, rien à configurer (`netlify.toml` fixe la
-  commande, le dossier publié et les en-têtes de cache). Le site est servi à la racine.
+  commande, le dossier publié, les en-têtes de cache et de sécurité). Site servi à la
+  racine.
+- **Serveur personnel** — configurations prêtes dans `deploy/` : `deploy/Caddyfile`
+  (le plus court, Caddy gère seul le certificat, la compression et les types MIME) et
+  `deploy/nginx/` (deux fichiers, voir le piège d'héritage des en-têtes signalé dedans).
 - **Autre hébergeur, dans un sous-chemin** — passer `BASE_PATH=/mon-chemin/` au build :
   les URL d'assets, le `start_url`/`scope` du manifeste et le repli du service worker
   suivent automatiquement.
+
+### Contrat de service
+
+`dist/` est un site statique, mais **six règles doivent être tenues par l'hébergeur**, et
+la plupart ne se voient pas quand elles sont fausses. Netlify en assure trois sans qu'on
+demande rien (HTTPS, compression, HSTS) : c'est exactement ce qui rend une migration
+risquée.
+
+| Règle | Pourquoi | Ce qui arrive si on l'oublie |
+|---|---|---|
+| **HTTPS** | Contexte sécurisé exigé par les navigateurs | Ni géolocalisation ni service worker |
+| **`/assets/*`, `/workbox-*.js` immuables** | Leur nom porte une empreinte du contenu | Rien de grave, juste du cache perdu |
+| **`sw.js`, `index.html`, `manifest.webmanifest` toujours revalidés** | Seuls fichiers à nom stable : ce sont eux qui annoncent une version | **L'application installée reste figée**, sans rien signaler |
+| **Compression** (gzip, mieux : brotli/zstd) | MapLibre pèse 936 ko bruts | ~4× plus de données sur mobile, invisible en fibre |
+| **Types MIME** (`.webmanifest`, `.woff2`) | Le manifeste doit être reconnu | Installation en application compromise |
+| **Repli page unique** | Toute URL inconnue rend `index.html` | 404 sur une URL mal recopiée |
+
+Plus les en-têtes de sécurité (CSP, `X-Frame-Options`, `X-Content-Type-Options`,
+`Referrer-Policy`, `Permissions-Policy`, HSTS). `connect-src` y énumère les trois services
+appelés : **toute nouvelle source de données doit y être ajoutée**, sinon ses appels sont
+refusés par le navigateur.
+
+Rien de tout cela ne se relit utilement. Après chaque mise en ligne, et impérativement
+après un changement d'hébergeur :
+
+```bash
+npm run verifie-deploiement -- https://mon-site.fr
+```
+
+Le script contrôle les six règles et les en-têtes sur le site réel, quel que soit
+l'hébergeur, et sort en erreur si une règle obligatoire n'est pas tenue.
 
 ## Architecture
 

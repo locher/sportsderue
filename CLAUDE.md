@@ -520,6 +520,41 @@ Les épingles, enfin, sont mises en cache (`pinCache`) : `setStyle()` vide les i
 carte, et les dix-huit gouttes étaient redessinées au canvas au passage du style provisoire
 au style thématisé — au pire moment.
 
+## Le jour où ça quittera Netlify
+
+C'est prévu (« un service perso »), et le danger n'est pas la migration elle-même — un
+site statique se recopie — mais **ce que Netlify fait sans qu'on le lui demande** et qui
+disparaîtrait sans bruit :
+
+- **la compression** (`content-encoding: br` sur tout) : un nginx nu ne compresse rien, et
+  les 936 ko de MapLibre partiraient bruts au lieu de ~243 ko ;
+- **HSTS**, qu'il pose de lui-même (`max-age=31536000; includeSubDomains; preload`) ;
+- **HTTPS et son certificat**.
+
+Et surtout, la règle dont tout dépend : `sw.js`, `index.html` et `manifest.webmanifest`
+**toujours revalidés**. Un `max-age` sur l'un des trois et l'application installée reste
+figée sur son ancienne version — c'est le symptôme signalé depuis un téléphone, celui qui
+obligeait à vider le cache à la main. Rien ne le signale, l'application marche.
+
+Trois choses sont donc en place, à tenir à jour ensemble :
+
+- `deploy/Caddyfile` — le chemin le plus court : Caddy gère certificat, compression et
+  types MIME tout seul, et n'a pas le piège d'héritage de nginx.
+- `deploy/nginx/` — deux fichiers, et ce n'est pas de la coquetterie : **dès qu'un bloc
+  `location` déclare un `add_header`, il perd tous ceux hérités du parent**. Comme chaque
+  `location` pose son propre `Cache-Control`, les en-têtes de sécurité s'évaporeraient de
+  tout ce qui n'est pas l'accueil. D'où le fichier inclus dans *chaque* `location`.
+- `scripts/verifie-deploiement.mjs` — **l'arbitre**. Il ne connaît pas l'hébergeur,
+  seulement le contrat, et se lance contre n'importe quelle URL :
+  `npm run verifie-deploiement -- https://mon-site.fr`. C'est lui qui empêche les trois
+  configurations de diverger : plutôt que de les comparer entre elles, on vérifie ce que
+  le site sert réellement.
+
+Ni nginx ni Caddy n'ont pu être exécutés dans le conteneur (pas de démon Docker) : les
+configurations sont écrites, pas éprouvées. Le *contrat*, lui, l'est — un serveur local
+appliquant les mêmes règles passe le contrôle, et le parcours complet de l'application y
+tourne sans erreur. La première mise en ligne doit donc commencer par le script.
+
 ## Les en-têtes de sécurité et la CSP
 
 Tout tient dans le bloc `[[headers]]` `for = "/*"` de `netlify.toml`, posé en août 2026 :
