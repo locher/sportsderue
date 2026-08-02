@@ -106,16 +106,31 @@ function pinImage(emoji: string, color: string, dpr: number): ImageData | null {
   return ctx.getImageData(0, 0, canvas.width, canvas.height)
 }
 
+/**
+ * Épingles déjà dessinées, par catégorie et densité d'écran.
+ *
+ * `setStyle()` repart d'une feuille vierge : les images posées sur la carte disparaissent
+ * avec le reste, et les dix-huit épingles étaient donc redessinées au passage du style
+ * provisoire au style thématisé — dix-huit canvas et autant de rendus d'emoji, au moment
+ * précis où la carte a le plus à faire. Leur tracé ne dépend que de la catégorie et de la
+ * densité : il n'a besoin d'être fait qu'une fois par session.
+ */
+const pinCache = new Map<string, ImageData>()
+
 function registerIcons(map: MapLibreMap): void {
   const dpr = Math.min(3, Math.max(2, Math.round(window.devicePixelRatio || 2)))
   for (const category of CATEGORIES) {
     const id = `pin-${category.id}`
     if (map.hasImage(id)) continue
-    const image = pinImage(category.emoji, category.vivid, dpr)
+    const cacheKey = `${category.id}@${dpr}`
+    const image = pinCache.get(cacheKey) ?? pinImage(category.emoji, category.vivid, dpr)
     if (!image) continue
+    pinCache.set(cacheKey, image)
     map.addImage(
       id,
-      { width: image.width, height: image.height, data: new Uint8Array(image.data.buffer) },
+      // Copie et non vue : la carte garde le tableau qu'on lui donne, et le cache doit
+      // rester intact pour le prochain style.
+      { width: image.width, height: image.height, data: new Uint8Array(image.data) },
       { pixelRatio: dpr },
     )
   }

@@ -20,7 +20,17 @@ interface Options {
 }
 
 export interface EquipmentsState {
+  /** Liste affichée : les deux bases fusionnées, portant la distance et triées. */
   items: Equipment[]
+  /**
+   * Les mêmes points, ni triés ni distancés, pour la carte.
+   *
+   * Réinstaller la source GeoJSON coûte un reclustering complet à MapLibre, alors que
+   * ni le tri ni la distance ne changent quoi que ce soit à l'affichage des épingles.
+   * Ce tableau ne change donc d'identité que lorsque les données changent réellement,
+   * et pas à chaque déplacement qui rapproche ou éloigne le point de référence.
+   */
+  mapItems: Equipment[]
   loading: boolean
   /** Panne de la base principale : la liste est vide, on propose de réessayer. */
   error: string | null
@@ -192,16 +202,21 @@ export function useEquipments({ bbox, zoom, filters, origin }: Options): Equipme
     }
   }, [query, osmKey, zoomedOut, withoutPlaygrounds, nonce])
 
+  const merged = useMemo(
+    () => (playgrounds.length ? [...items, ...playgrounds] : items),
+    [items, playgrounds],
+  )
+
   const sorted = useMemo(() => {
-    const merged = playgrounds.length ? [...items, ...playgrounds] : items
     if (!origin) return merged
     return merged
       .map((item) => ({ ...item, distance: distanceMeters(origin, item) }))
       .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0))
-  }, [items, playgrounds, origin])
+  }, [merged, origin])
 
   return {
     items: sorted,
+    mapItems: merged,
     loading: loading || playgroundsLoading,
     error,
     warning,

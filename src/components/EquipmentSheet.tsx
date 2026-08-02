@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Equipment, EquipmentDetail } from '../types'
 import { fetchEquipmentDetail, officialRecordUrl } from '../lib/dataes'
 import { playgroundRecordUrl } from '../lib/overpass'
@@ -40,30 +40,42 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
   const [detail, setDetail] = useState<EquipmentDetail | null>(null)
   const [loading, setLoading] = useState(false)
 
+  // L'objet `equipment` est refabriqué à chaque recalcul des distances, c'est-à-dire à
+  // chaque fin de déplacement de la carte — le recentrage automatique sur le point
+  // sélectionné en provoque un aussitôt la fiche ouverte. Se caler sur son identité
+  // relançait donc l'appel réseau et faisait clignoter « Chargement de la fiche… » sur
+  // une fiche déjà affichée, pour un contenu identique. Seul l'équipement *désigné*
+  // compte : l'effet ne suit que son identifiant et sa base.
+  const equipmentRef = useRef(equipment)
+  equipmentRef.current = equipment
+  const id = equipment?.id
+  const source = equipment?.source
+
   useEffect(() => {
-    if (!equipment) {
+    const current = equipmentRef.current
+    if (!current) {
       setDetail(null)
       return
     }
     // Une aire de jeux arrive déjà complète : la réponse de liste d'Overpass porte
     // toutes les étiquettes de l'objet, contrairement à Data ES qui n'en renvoie
     // qu'un extrait et impose un second appel.
-    if (equipment.source === 'osm') {
-      setDetail(equipment as EquipmentDetail)
+    if (source === 'osm') {
+      setDetail(current as EquipmentDetail)
       setLoading(false)
       return
     }
     setDetail(null)
     setLoading(true)
     const controller = new AbortController()
-    fetchEquipmentDetail(equipment.id, controller.signal)
+    fetchEquipmentDetail(current.id, controller.signal)
       .then(setDetail)
       .catch(() => undefined)
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false)
       })
     return () => controller.abort()
-  }, [equipment])
+  }, [id, source])
 
   const category = equipment ? categoryStyle(equipment.category) : null
   const address = equipment

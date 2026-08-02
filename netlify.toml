@@ -15,6 +15,32 @@
   to = "/index.html"
   status = 200
 
+# En-têtes de sécurité, sur toutes les réponses.
+#
+# Volontairement limités à ce qui ne peut rien casser d'autre : la politique de sécurité
+# du contenu (CSP), elle, est posée en `<meta>` dans `index.html` pour ne pas s'appliquer
+# à la page d'authentification de Netlify (le site est protégé par mot de passe, et cette
+# page m'est invisible). Seul `X-Frame-Options` fait exception : `frame-ancestors` est
+# ignoré en `<meta>`, il n'y a que l'en-tête pour interdire la mise en cadre. Les deux
+# fichiers se répondent, ne pas en modifier un sans l'autre.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Aucune raison d'afficher la carte dans le cadre d'un autre site : c'est la porte
+    # ouverte au détournement de clic (un bouton invisible posé par-dessus).
+    X-Frame-Options = "DENY"
+    # Le navigateur s'en tient au type déclaré, sans deviner d'après le contenu.
+    X-Content-Type-Options = "nosniff"
+    # Les liens sortants (itinéraire, fiche officielle, OpenStreetMap) ne transmettent
+    # que l'origine, jamais l'URL complète — qui porte la position et l'équipement
+    # consulté. C'est la position de la personne qui est en jeu.
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    # Géolocalisation autorisée pour l'application elle-même, tout le reste coupé :
+    # rien d'autre n'est utilisé, et ce qui n'est pas déclaré ne peut pas être demandé.
+    Permissions-Policy = "geolocation=(self), camera=(), microphone=(), payment=(), usb=(), accelerometer=(), gyroscope=(), magnetometer=(), interest-cohort=()"
+    # Isole la page des fenêtres qu'elle ouvre et de celles qui l'ouvrent.
+    Cross-Origin-Opener-Policy = "same-origin"
+
 # Fichiers dont le nom porte une empreinte du contenu : un changement produit un nouveau
 # nom, jamais une nouvelle version du même fichier. Ils peuvent être gardés pour toujours.
 [[headers]]

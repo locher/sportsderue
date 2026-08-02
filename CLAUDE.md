@@ -185,6 +185,15 @@ Opendatasoft Explore v2.1, dataset `data-es`, sans clé, CORS ouvert :
 - `/records` plafonne à **100** résultats par appel (`-1 <= limit <= 100`). D'où l'usage de
   `/exports/geojson`, qui renvoie tout en un appel ; la géométrie vient du champ
   `equip_coordonnees`, les autres champs sélectionnés deviennent les `properties`.
+- **Toujours passer `select`**, y compris sur une fiche unique : sans lui, `/records`
+  renvoie les **114 champs** de l'enregistrement (3 457 octets mesurés) là où la fiche en
+  affiche 31 (1 063 octets). Les deux tiers du transfert partaient en bassins, tribunes,
+  homologations et découpages administratifs que rien ne lit. Corollaire : une donnée
+  nouvellement affichée doit être ajoutée à `DETAIL_FIELDS`, sinon elle arrive vide.
+- L'échappement de `quote()` est **sûr et vérifié contre l'API réelle** : une valeur forgée
+  `a\" OR equip_numero LIKE "b` ressort en `ODSQLSyntaxError`, pas en clause élargie.
+  C'est le seul point d'entrée d'une chaîne extérieure (l'identifiant d'un lien partagé) :
+  ne jamais le remplacer par une interpolation directe.
 - `/facets` ne renvoie que les **100 premières valeurs** d'une facette : ne pas en conclure
   qu'une liste est exhaustive.
 - **Quota : 5 000 appels/jour et par IP**, remise à zéro à minuit UTC (en-têtes
@@ -479,6 +488,66 @@ Les modifier sans y penser dégrade l'expérience :
   bout de carte tronqué dès que le titre passait sur deux lignes.
 - État partagé dans l'URL : `lat`, `lng`, `z`, `s` (sports), `f` (drapeaux), `e`
   (équipement). Filtres mémorisés sous `sportsderue.filters.v1`.
+
+## Ce qui doit garder son identité entre deux rendus
+
+Tout part de la même mécanique : **la vue change à chaque fin de déplacement**, et tout ce
+qui en descend est refabriqué. Trois verrous posés en août 2026, à ne pas défaire — chacun
+répare une dépense qui ne se voyait pas à la lecture du code.
+
+1. **`origin` (App).** C'est le point d'où partent les distances. Seule sa *valeur* compte,
+   jamais son identité : c'est elle qui déclenche le recalcul des distances et le tri de
+   toute la liste. Il était refabriqué à chaque `moveend` alors qu'il vaut la position GPS
+   — donc la même chose — tant qu'on se promène à moins de 30 km. D'où le verrou par
+   comparaison de valeur (`lastOrigin`).
+2. **`mapItems` contre `items` (`useEquipments`).** La carte n'a besoin ni du tri ni des
+   distances, et réinstaller sa source GeoJSON coûte un **reclustering complet**. Elle
+   reçoit donc `mapItems`, dont l'identité ne change que quand les données changent
+   vraiment. La liste, elle, reçoit `items` — triés, distancés.
+3. **`EquipmentRow` mémoïsée + `onSelect` stable.** La feuille affiche jusqu'à 1 500 lignes
+   et se redessine pour des raisons qui ne les concernent pas (hauteur du panneau, barre de
+   chargement, sélection). `onSelect` (App) lit donc ce dont il a besoin dans des refs au
+   lieu de le capturer en dépendance : sans identité stable, la mémoïsation ne sert à rien.
+
+Le symptôme le plus visible de cette famille, corrigé au passage : **la fiche d'équipement
+se rechargeait à chaque mouvement de carte**. Son effet se calait sur l'objet `equipment`,
+refabriqué par le recalcul des distances — or ouvrir une fiche recentre la carte. Mesuré
+sur un parcours Playwright, une seule tape sur un équipement hors écran déclenchait
+**4 appels réseau au lieu de 1**, et rejouait « Chargement de la fiche… » sur une fiche déjà
+affichée. L'effet ne suit désormais que `equipment.id` et `equipment.source`.
+
+Les épingles, enfin, sont mises en cache (`pinCache`) : `setStyle()` vide les images de la
+carte, et les dix-huit gouttes étaient redessinées au canvas au passage du style provisoire
+au style thématisé — au pire moment.
+
+## Les en-têtes de sécurité et la CSP
+
+Posés en août 2026, et **répartis entre deux fichiers pour une raison précise** :
+
+- `netlify.toml` porte les en-têtes qui ne peuvent rien casser ailleurs :
+  `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy` (les URL portent la
+  position et l'équipement consulté, elles ne doivent pas fuiter vers Google Maps ou OSM),
+  `Permissions-Policy` (géolocalisation pour soi, tout le reste coupé) et
+  `Cross-Origin-Opener-Policy`.
+- `index.html` porte la **CSP, en `<meta>`**. Pas en en-tête : le site est protégé par mot
+  de passe, un en-tête s'appliquerait aussi à la page d'authentification de Netlify — que je
+  ne peux ni voir ni tester, et dont un `script-src` mal placé bloquerait la connexion.
+  En `<meta>`, la politique ne vaut que pour ce document.
+
+Les deux fichiers se répondent : `frame-ancestors` **est ignoré en `<meta>`**, c'est
+`X-Frame-Options` qui tient ce rôle. Ne pas modifier l'un sans l'autre.
+
+`connect-src` énumère les trois services (`data.geopf.fr`,
+`equipements.sports.gouv.fr`, `overpass-api.de`) : **toute nouvelle source de données doit y
+être ajoutée**, sinon ses appels sont refusés — et c'est bien le but, rien ne peut partir
+ailleurs. `style-src` garde `'unsafe-inline'` (la charte pose beaucoup de couleurs de sport
+en ligne, et une feuille injectée ne vaut pas un script) ; `worker-src` accepte `blob:` par
+sécurité, MapLibre basculant sur un worker en blob si jamais son URL devenait distante.
+
+Vérifié au navigateur sur le build de production, parcours complet **plus** les deux
+chemins que le parcours principal ne touche pas et que la CSP pouvait couper : l'appel
+Overpass de la catégorie « Jeux » (56 aires chargées) et l'ouverture par lien partagé
+(`?e=…`). Zéro violation, zéro erreur de console.
 
 ## Choix assumés, à ne pas « corriger »
 

@@ -97,7 +97,9 @@ export default defineConfig({
       output: {
         // MapLibre pèse l'essentiel du bundle et ne change presque jamais :
         // on l'isole pour que les mises à jour de l'app n'invalident pas son cache.
-        advancedChunks: {
+        // (`advancedChunks` faisait la même chose, rolldown l'a déprécié au profit
+        // de `codeSplitting` — même forme, mêmes `groups`.)
+        codeSplitting: {
           groups: [{ name: 'maplibre', test: /node_modules[\\/]maplibre-gl/ }],
         },
       },

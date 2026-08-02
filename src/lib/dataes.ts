@@ -58,6 +58,37 @@ const LIST_FIELDS = [
   'equip_coordonnees',
 ]
 
+/**
+ * Champs supplémentaires de la fiche détaillée, en plus de `LIST_FIELDS`.
+ *
+ * Sans `select`, `/records` renvoie les **114 champs** de l'enregistrement (3 457 octets
+ * pour une fiche mesurée) là où l'écran n'en affiche que 31 (1 063 octets) : les deux
+ * tiers du transfert servaient à des colonnes que rien ne lit — bassins, tribunes,
+ * homologations, découpages administratifs. Toute nouvelle donnée affichée sur la fiche
+ * doit donc être ajoutée ici, sinon elle arrivera vide.
+ */
+const DETAIL_FIELDS = [
+  'equip_sol',
+  'equip_long',
+  'equip_larg',
+  'equip_surf',
+  'equip_douche',
+  'equip_sanit',
+  'equip_vest_sport',
+  'equip_prop_nom',
+  'equip_prop_type',
+  'equip_gest_type',
+  'equip_service_date',
+  'equip_travaux_date',
+  'equip_saison',
+  'equip_url',
+  'equip_obs',
+  'inst_obs',
+  'equip_maj_date',
+  'dep_nom',
+  'reg_nom',
+]
+
 /** Nombre maximum d'équipements chargés pour une vue. Au-delà, on invite à zoomer. */
 export const MAX_FEATURES = 1500
 
@@ -71,7 +102,15 @@ export class DataEsError extends Error {
   }
 }
 
-/** Échappe une valeur pour une clause ODSQL (littéral entre guillemets doubles). */
+/**
+ * Échappe une valeur pour une clause ODSQL (littéral entre guillemets doubles).
+ *
+ * C'est le seul endroit où une chaîne venue de l'extérieur entre dans une clause :
+ * l'identifiant d'équipement, qui peut arriver d'un lien partagé (`?e=…`). Vérifié
+ * contre l'API réelle — une valeur forgée `a\" OR equip_numero LIKE "b` ressort en
+ * `ODSQLSyntaxError` et non en clause élargie : l'antislash échappe bien le guillemet,
+ * la sortie de chaîne est impossible. Ne pas remplacer par une interpolation directe.
+ */
 function quote(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
@@ -297,6 +336,7 @@ export async function fetchEquipmentDetail(
   signal?: AbortSignal,
 ): Promise<EquipmentDetail | null> {
   const params = new URLSearchParams({
+    select: [...LIST_FIELDS, ...DETAIL_FIELDS].join(','),
     where: `equip_numero = ${quote(id)}`,
     limit: '1',
   })

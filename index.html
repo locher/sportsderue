@@ -2,6 +2,34 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      Politique de sécurité du contenu. Elle est posée ici, et non dans `netlify.toml`,
+      pour une raison précise : le site est protégé par mot de passe, et un en-tête
+      s'appliquerait aussi à la page d'authentification de Netlify — que je ne peux ni
+      voir ni tester. En `<meta>`, elle ne vaut que pour ce document-ci.
+      Corollaire : `frame-ancestors` est ignoré en `<meta>`, c'est `X-Frame-Options`
+      dans `netlify.toml` qui tient ce rôle. Les deux vont ensemble.
+
+      `connect-src` est la ligne qui compte : elle énumère les quatre services de
+      l'application. Toute nouvelle source de données doit y être ajoutée, sinon ses
+      appels seront refusés — et c'est le but, aucune donnée ne peut partir ailleurs.
+      `style-src` garde 'unsafe-inline' : la charte pose beaucoup de couleurs en ligne
+      (les teintes de sport), et une feuille de style injectée ne vaut pas un script.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               base-uri 'self';
+               object-src 'none';
+               form-action 'self';
+               manifest-src 'self';
+               script-src 'self';
+               worker-src 'self' blob:;
+               style-src 'self' 'unsafe-inline';
+               font-src 'self';
+               img-src 'self' data: blob:;
+               connect-src 'self' https://data.geopf.fr https://equipements.sports.gouv.fr https://overpass-api.de"
+    />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover"
