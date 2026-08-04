@@ -187,7 +187,7 @@ src/
 │   ├── playgrounds.ts         aires de jeux : lecture des cellules statiques
 │   ├── sports.ts              taxonomie des sports (types, activités, emojis, couleurs)
 │   ├── geocode.ts             recherche et géocodage inverse Géoplateforme
-│   ├── geo.ts                 distances, emprises, liens d'itinéraire
+│   ├── geo.ts                 distances, emprises, liens d'itinéraire et de vue immersive
 │   ├── cache.ts               cache mémoire des résultats par emprise + filtres
 │   ├── appUpdate.ts           détection et application des nouvelles versions
 │   ├── text.ts                comparaison de libellés « au sens près »
@@ -245,7 +245,12 @@ Détails d'implémentation utiles à connaître :
   renseignés sur moins de 6 % d'entre elles. Leur relevé date de la dernière exécution de
   `npm run playgrounds`.
 - La distance affichée est à vol d'oiseau, pas un temps de marche.
-- Pas encore : horaires d'ouverture (absents du RES), photos, signalement d'erreur intégré,
+- Aucune photo n'est affichée dans la fiche : la fiche propose un lien « Voir la rue » vers
+  la vue immersive, mais rien n'est intégré. Mesuré avec `npm run mesure-panoramax` : la
+  seule source libre, Panoramax, ne couvre que 36 % des équipements en France (14 % en
+  zone rurale), et trois photos sur quatre sont des 360° dont la vignette regarde la route
+  plutôt que l'équipement.
+- Pas encore : horaires d'ouverture (absents du RES), signalement d'erreur intégré,
   itinéraire dans l'application.
 
 ## Licence

@@ -310,6 +310,64 @@ Ce qu'il faut savoir avant d'y toucher :
 L'attribution ODbL est posée dans le contrôle d'attribution de MapLibre **en permanence**,
 pas seulement quand la catégorie est cochée : plus simple, et jamais faux.
 
+## « Voir la rue » : pourquoi un lien et pas une image
+
+Le RES décrit beaucoup et ne montre rien. La fiche porte donc un lien sortant vers Google
+Street View (`streetViewUrl`, `geo.ts`) — pas d'aperçu intégré. Ce n'est pas un lot de
+consolation, c'est le résultat d'une mesure. Instruit en août 2026, à ne pas refaire sans
+rejouer `npm run mesure-panoramax`.
+
+**Une image intégrée est exclue par construction.** La Street View Static API demande une
+clé et un compte de facturation, et la clé serait publique dans un client statique : c'est
+frontalement contraire aux deux choix fondateurs. Un lien sortant, lui, ne coûte rien, ne
+demande aucune clé et **n'ajoute aucune ligne de CSP** — rien n'est chargé, on navigue.
+
+**Panoramax est la seule alternative libre, et elle ne suffit pas.** Trois chiffres,
+mesurés sur 654 équipements du RES (échantillon régulier, 12 départements de quatre
+profils plus le cœur de 12 grandes villes) :
+
+- **36 %** de couverture en France, tous profils confondus ;
+- **14 %** en zone rurale (Gers 7 %, Creuse 13 %) — un aperçu absent quatre fois sur cinq ;
+- **79 %** dans le cœur des grandes villes, mais très inégal : Strasbourg 100 %, Lyon et
+  Lille 96 %, Rennes 40 %.
+
+**Et le piège, qui n'est pas dans les chiffres de couverture** : trois photos sur quatre
+sont des **360°**, et leur vignette (`thumb`, 24 ko) montre le centre du panorama —
+c'est-à-dire la **direction de marche**, la route, pas l'équipement. La documentation de
+l'API est explicite : `place_fov_tolerance` est *ignoré pour les photos 360°*, donc pour
+elles `place_position` n'est qu'un filtre de distance et ne garantit aucune visibilité. Un
+`<img src={thumb}>` naïf afficherait une rue au hasard : le « pire que pas d'aperçu », en
+plus sournois puisque ça *ressemble* à un aperçu.
+
+Redresser la vue impose de télécharger le panorama complet (`sd.jpg`, équirectangulaire
+2048×1024, **264 ko**) et de le recadrer au canvas vers le cap photo→équipement. La
+convention est vérifiée : **le centre de l'image équirectangulaire regarde `view:azimuth`**
+(un recadrage central reproduit la vignette au pixel près), l'axe x parcourt 360° dans le
+sens horaire. Les tuiles (`…/tiles/{col}_{row}.jpg`) sont un plus mauvais marché : 175 ko
+pièce et il en faut quatre pour couvrir l'horizon.
+
+Reste la question de fond, et c'est elle qui tranche : **même recadrée correctement, une
+image sur deux ne montre pas l'équipement**. La photo est prise de la route, le point du
+RES est au milieu du terrain, et entre les deux il y a une haie, un grillage ou un
+bâtiment. Noté à l'œil sur deux planches de contact : dans la configuration la plus
+favorable (photo la plus proche à ≤ 25 m, qui ne couvre que 29 % des équipements en cœur
+de ville), 6 cas utiles sur 12. Soit ~15 % des équipements urbains servis, à 264 ko pièce.
+La variante économique (photos plates seules, dont la vignette est bien cadrée et
+directement affichable) tombe à 11 % de couverture.
+
+Un visualiseur, lui, permet de **tourner la tête** — exactement ce qu'une vignette figée
+ne peut pas faire, et exactement ce qui manque quand la photo est prise à 20 m de côté.
+C'est pourquoi le lien résout le besoin réel là où l'image intégrée le dégraderait.
+
+Deux détails à conserver : le lien vit dans le corps de la fiche au contact de l'adresse,
+pas dans le pied de page — c'est une vérification qu'on fait *en lisant*, pas l'action de
+départ ; et son libellé nomme Google, comme les autres liens sortants nomment leur
+destination.
+
+Note utile si la question revient : **`api.panoramax.xyz` est l'instance fédérée**, elle
+sert aussi les photos de `panoramax.ign.fr`. Sur 360 points, aucun n'était couvert par
+l'IGN sans l'être par elle — inutile d'interroger les deux.
+
 ## Les autres services
 
 - **Géocodage** : `https://data.geopf.fr/geocodage/search` et `/reverse`.
@@ -611,6 +669,8 @@ un chargement direct en charge quatre.
 - Le tennis de table extérieur n'a pas de type dédié dans le RES : sa catégorie repose
   entièrement sur `aps_name`. Cela remonte aussi des plateaux multisports équipés d'une
   table (~220 en France). C'est le maximum que la donnée permet.
+- **Aucune photo intégrée dans la fiche**, seulement un lien « Voir la rue ». Mesuré, pas
+  supposé — voir « « Voir la rue » : pourquoi un lien et pas une image ».
 - Pas de contrôle de zoom MapLibre (la colonne de droite est prise par les boutons
   flottants), attribution en bas à gauche décalée au-dessus de la feuille via `--sheet-h`.
 - Pas d'ESLint, pas de tests unitaires : la vérification passe par le parcours Playwright
@@ -623,9 +683,13 @@ Rien n'est engagé, mais les questions ont déjà été instruites :
 - Montée en charge : PMTiles nocturnes (voir plus haut). Un cache en périphérie
   (Cloudflare Worker, normalisation de l'emprise sur une grille) n'est utile que s'il faut
   de la fraîcheur à la journée. Demander un relèvement de quota est gratuit et sans risque.
-- Manques fonctionnels : horaires d'ouverture (absents du RES), photos, signalement d'une
-  erreur de fiche, itinéraire piéton calculé (aujourd'hui c'est un lien vers l'application
-  de cartographie du téléphone, et la distance est à vol d'oiseau).
+- Manques fonctionnels : horaires d'ouverture (absents du RES), signalement d'une erreur de
+  fiche, itinéraire piéton calculé (aujourd'hui c'est un lien vers l'application de
+  cartographie du téléphone, et la distance est à vol d'oiseau).
+- Aperçu photo intégré : instruit et écarté sur mesure, pas fermé pour autant. Panoramax
+  progresse vite (plus de la moitié des photos trouvées datent de 2024-2026) ; rejouer
+  `npm run mesure-panoramax` dans un an. Le seuil à partir duquel ça vaudrait le coup :
+  une couverture urbaine qui tienne à ≤ 25 m, là où l'image montre vraiment l'équipement.
 - Vérification de build lisible côté GitHub : un workflow qui ne fait que `npm run build`,
   pour avoir un témoin vert sur chaque commit sans rien déployer. Proposé, non retenu pour
   l'instant (le dépôt n'a aujourd'hui aucun workflow).

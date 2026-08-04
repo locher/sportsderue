@@ -101,3 +101,27 @@ export function directionsUrl(point: LngLat, label?: string): string {
   })
   return `https://www.google.com/maps/dir/?${params}`
 }
+
+/**
+ * Lien vers la vue immersive au niveau de la rue, pour voir l'endroit avant d'y aller.
+ *
+ * C'est un **lien sortant**, pas un aperçu intégré, et c'est un choix mesuré (voir
+ * « Voir la rue : pourquoi un lien et pas une image » dans CLAUDE.md). L'essentiel :
+ * une image intégrée demanderait la Street View Static API, donc une clé publique dans
+ * un client statique — exclu. L'alternative libre, Panoramax, ne couvre que 36 % des
+ * équipements en France, et sa vignette montre la route devant plutôt que l'équipement
+ * quatre fois sur cinq. Un visualiseur, lui, permet de **tourner la tête** : c'est
+ * exactement ce qui manque à une vignette figée prise de la route à 20 m d'un terrain.
+ *
+ * Aucune clé, aucune ligne de CSP à ajouter : rien n'est chargé, on navigue. Le
+ * `rel="noreferrer"` de l'appel, comme le `Referrer-Policy` du site, garde la position
+ * consultée hors de l'en-tête `Referer`.
+ */
+export function streetViewUrl(point: LngLat): string {
+  const params = new URLSearchParams({
+    api: '1',
+    map_action: 'pano',
+    viewpoint: `${point.lat},${point.lon}`,
+  })
+  return `https://www.google.com/maps/@?${params}`
+}

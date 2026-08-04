@@ -120,6 +120,17 @@ export function ShareIcon(props: IconProps) {
   )
 }
 
+/** Photo de paysage : cadre, horizon, soleil. Annonce « on va voir l'endroit ». */
+export function StreetViewIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2.6" y="5.4" width="18.8" height="13.2" rx="3.4" />
+      <path d="M2.6 14.6c3.1-2.7 5.5-2.7 8.6 0 2.4-3.5 4.7-4.5 10.2-2.3" />
+      <circle cx="8.4" cy="9.7" r="1.5" />
+    </Svg>
+  )
+}
+
 export function InfoIcon(props: IconProps) {
   return (
     <Svg {...props}>

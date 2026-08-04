@@ -2,19 +2,21 @@ import { useEffect, useRef, useState } from 'react'
 import type { Equipment, EquipmentDetail } from '../types'
 import { fetchEquipmentDetail, officialRecordUrl } from '../lib/dataes'
 import { playgroundRecordUrl, playgroundsDate } from '../lib/playgrounds'
-import { directionsUrl, formatDistance } from '../lib/geo'
+import { directionsUrl, formatDistance, streetViewUrl } from '../lib/geo'
 import { sameLabel } from '../lib/text'
 import { categoryStyle } from '../lib/sports'
 import { BottomSheet } from './BottomSheet'
 import {
   AccessibleIcon,
   BulbIcon,
+  ChevronIcon,
   InfoIcon,
   PinIcon,
   RouteIcon,
   RulerIcon,
   ShareIcon,
   Spinner,
+  StreetViewIcon,
   WalkIcon,
 } from './Icons'
 
@@ -251,6 +253,27 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
               </span>
             </p>
           )}
+
+          {/* Le RES décrit beaucoup et ne montre rien : voir l'endroit est le seul moyen
+              de juger l'état du sol, la clôture, les paniers. Lien sortant plutôt
+              qu'image intégrée — le pourquoi est dans `streetViewUrl`. Il vit ici, au
+              contact de l'adresse, et non dans le pied de page : c'est une vérification
+              qu'on fait en lisant la fiche, pas l'action de départ. */}
+          <a
+            href={streetViewUrl(equipment)}
+            target="_blank"
+            rel="noreferrer"
+            className="springy flex items-center gap-2.5 rounded-[22px] bg-canvas p-4 text-left"
+          >
+            <StreetViewIcon className="size-4.5 shrink-0 text-ink" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold">Voir la rue</span>
+              <span className="mt-0.5 block text-xs text-muted">
+                Vue immersive, ouvre Google Maps
+              </span>
+            </span>
+            <ChevronIcon className="size-4 shrink-0 text-muted" />
+          </a>
 
           {equipment.sports.length > 0 && (
             <div>

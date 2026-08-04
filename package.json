@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "icons": "python3 scripts/generate-icons.py",
     "playgrounds": "node scripts/build-playgrounds.mjs",
+    "mesure-panoramax": "node scripts/mesure-panoramax.mjs",
     "verifie-deploiement": "node scripts/verifie-deploiement.mjs"
   },
   "dependencies": {
