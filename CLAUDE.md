@@ -82,6 +82,77 @@ depuis un répertoire, ouvrir la page, reconstruire par-dessus avec un `<title>`
 attendre 65 s, émettre un `visibilitychange` caché puis visible, et vérifier que le titre
 a changé tout seul. Compter les rechargements : il doit y en avoir exactement **un**.
 
+## La position suit le mouvement
+
+Signalée depuis un téléphone (ticket #9) : la position affichée était juste mais **figée**.
+On marchait, le point restait au départ. `getCurrentPosition` ne mesure qu'une fois, et
+rien ne redemandait jamais.
+
+Deux mécanismes désormais, et ils ne font pas le même travail — ne pas les confondre :
+
+- **`getCurrentPosition`** (`locate()`) obtient le *premier* point. C'est lui qui déclenche
+  la demande d'autorisation, lui qui porte les messages d'erreur et le bouton
+  « Réessayer », lui qui garde `enableHighAccuracy: false` et son `timeout` de 20 s : ce
+  qui compte à l'arrivée, c'est d'avoir un point vite.
+- **`watchPosition`** prend le relais, démarré seulement **après** un premier point obtenu
+  (l'autorisation est alors acquise, il n'y a plus rien à demander). Réglages inverses :
+  `enableHighAccuracy: true` — sans elle la position vient du Wi-Fi et ne bouge pas d'un
+  pas à l'autre, le suivi n'aurait rien à suivre — `maximumAge: 0`, et **pas de
+  `timeout`** : il ferait remonter une erreur à chaque mesure manquée alors qu'on a déjà un
+  point valable. Ses erreurs sont donc traitées à l'inverse aussi : un tunnel n'est pas une
+  panne, on garde le dernier point ; seul `PERMISSION_DENIED` arrête le suivi (une
+  autorisation peut être retirée en cours de route).
+
+Trois garde-fous, chacun contre une dépense qui ne se voit pas :
+
+1. **Seuil de 8 m** (`MOVE_EPSILON_M`). Un appareil immobile « danse » de quelques mètres
+   d'une mesure à l'autre, et tout descend de cette valeur : marqueur déplacé, carte
+   recentrée, distances recalculées, liste retriée. Huit mètres, c'est sous la précision
+   courante en ville et au-dessus du frémissement.
+2. **Suivi en pause page masquée**, relancé au retour au premier plan. La haute précision
+   coûte de la batterie, et en arrière-plan il n'y a rien à montrer.
+3. **Verrou de 25 m sur `origin`** (App). Le marqueur doit suivre au mètre près, la liste
+   non : les distances sont arrondies à dix mètres et chaque changement de référence retrie
+   puis rediffuse jusqu'à 1 500 lignes. Le verrou de valeur décrit plus bas est donc devenu
+   un verrou à **tolérance** (voir « Ce qui doit garder son identité »).
+
+**La carte, elle, ne suit que si `followUser` est vrai** — après une tape sur « Me
+localiser », ou au premier chargement. Elle glisse quand le point dérive de plus de
+`FOLLOW_SLACK_PX` (6 px) du centre : au zoom d'arrivée, 8 m valent moins de deux pixels, et
+animer pour cela déclencherait une salve d'événements (`moveend`, URL réécrite, emprise
+recalculée) sans que rien ne bouge à l'écran. Le `easeTo` du suivi n'est **pas**
+`essential` : sous `prefers-reduced-motion`, MapLibre recentre alors d'un coup au lieu de
+glisser — le suivi fonctionne, sans le mouvement.
+
+Et le piège qui a coûté le plus de temps : **`movestart` ne dit pas qui a bougé la carte**.
+Le suivi s'arrêtait sur son *propre* premier recentrage, et le bouton « Me localiser »
+s'éteignait dans la seconde qui suivait la tape (bug déjà présent avant le suivi, avec le
+vol d'arrivée). Seuls les gestes portent un **`originalEvent`** — vérifié dans la source de
+MapLibre : le gestionnaire de gestes le réexpédie, `easeTo`/`flyTo` fabriquent l'événement
+avec les seules `eventData` de l'appel. D'où la règle en place :
+
+- geste (glissement, pincement, molette, clavier) → `originalEvent` présent → reprise en
+  main, le suivi rend la main ;
+- déplacement programmé → aucun `originalEvent`, le suivi continue ;
+- sauf les deux déplacements programmés qui *veulent dire* « je regarde ailleurs » : le
+  dépliage d'un regroupement appelle `onUserMove()` explicitement, et `focus()` renvoie
+  désormais s'il a bougé la carte — App n'arrête le suivi que dans ce cas, si bien
+  qu'ouvrir une épingle déjà visible ne l'interrompt pas.
+
+Vérifié au navigateur, et c'est reproductible : **`ctx.setGeolocation()` de Playwright
+réveille bien `watchPosition`**, il n'y a pas besoin de simuler l'API. Trois parcours de la
+méthode décrite plus bas (relais réseau, `geolocation` accordée, Toulouse) : marche de
+200 m par pas de 25 m puis glissement puis « Me localiser » ; frémissement de 5 m puis pas
+de 30 m avec une fiche ouverte ; et mise en pause — `visibilityState` n'étant pas pilotable
+depuis Playwright, on le remplace et on émet l'événement, comme pour la vérification de la
+mise à jour automatique. 28 contrôles, dont : la fiche ne se recharge pas quand on marche,
+marcher 150 m ne relance la liste qu'une fois, le suivi rattrape 400 m au retour au premier
+plan, zéro erreur console. Deux détails à connaître pour écrire ces contrôles : **suivi
+actif, le marqueur ne bouge pas à l'écran** puisque c'est la carte qui glisse sous lui —
+comparer des pixels ne prouve rien, il faut comparer au `map.project()` de la position
+attendue (ou `unproject()` du marqueur), ou couper le suivi d'abord ; et `aria-pressed` du
+bouton « Me localiser » dit si le suivi est actif, c'est la sonde la plus simple.
+
 ## La charte visuelle
 
 Refondue en août 2026. La version précédente — vert institutionnel, rayons courts, boutons
@@ -542,7 +613,11 @@ Les modifier sans y penser dégrade l'expérience :
   sinon du centre de la carte : sans ça, sélectionner un équipement change la distance
   affichée.
 - La sélection ne recentre la carte que si le point est masqué (en-tête, feuille, hors
-  écran).
+  écran) — et c'est seulement dans ce cas qu'elle arrête le suivi de la position.
+- La position est **suivie en continu** (`watchPosition`), au seuil de 8 m ; la carte ne la
+  suit que si `followUser` est vrai, et le premier geste sur la carte le fait retomber. Un
+  recentrage programmé, lui, n'arrête jamais le suivi (voir « La position suit le
+  mouvement »).
 - La position d'aperçu de la feuille n'est **pas** une constante : elle vaut la hauteur
   réelle de l'en-tête, mesurée au `ResizeObserver`. Une valeur en dur laissait dépasser un
   bout de carte tronqué dès que le titre passait sur deux lignes.
@@ -558,8 +633,10 @@ répare une dépense qui ne se voyait pas à la lecture du code.
 1. **`origin` (App).** C'est le point d'où partent les distances. Seule sa *valeur* compte,
    jamais son identité : c'est elle qui déclenche le recalcul des distances et le tri de
    toute la liste. Il était refabriqué à chaque `moveend` alors qu'il vaut la position GPS
-   — donc la même chose — tant qu'on se promène à moins de 30 km. D'où le verrou par
-   comparaison de valeur (`lastOrigin`).
+   — donc la même chose — tant qu'on se promène à moins de 30 km. D'où le verrou
+   (`lastOrigin`), qui compare les **valeurs** et non les objets. Depuis que la position est
+   suivie en continu, il tolère 25 m au lieu d'exiger l'égalité : une mesure arrive dès
+   qu'on a fait huit pas, et le marqueur doit les suivre — pas la liste.
 2. **`mapItems` contre `items` (`useEquipments`).** La carte n'a besoin ni du tri ni des
    distances, et réinstaller sa source GeoJSON coûte un **reclustering complet**. Elle
    reçoit donc `mapItems`, dont l'identité ne change que quand les données changent

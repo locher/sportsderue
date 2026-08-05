@@ -26,6 +26,17 @@ import { fetchPlaygroundDetail, isPlaygroundId } from './lib/playgrounds'
 
 const NATURE_IDS = CATEGORIES.filter((c) => c.group === 'nature').map((c) => c.id)
 
+/**
+ * Déplacement du point de référence en dessous duquel les distances ne sont pas
+ * recalculées.
+ *
+ * Le suivi de la position livre une mesure tous les huit mètres : le marqueur doit les
+ * suivre, la liste n'a rien à y gagner. Les distances sont affichées arrondies à dix
+ * mètres, et chaque changement de référence retrie jusqu'à 1 500 lignes puis les
+ * rediffuse toutes — c'est la dépense que le verrou ci-dessous existe pour éviter.
+ */
+const ORIGIN_EPSILON_M = 25
+
 function initialFilters(): Filters {
   const params = new URLSearchParams(window.location.search)
   if (params.has('s') || params.has('f')) return readState().filters
@@ -77,7 +88,9 @@ export default function App() {
   // ci-dessous, chaque fin de déplacement en fabriquait un nouvel objet — donc un tri
   // complet et un rendu de toutes les cartes de la liste — alors que le point de
   // référence n'avait pas bougé d'un mètre. C'est le cas courant : on est géolocalisé
-  // et on se promène dans sa ville, `me` est renvoyé à l'identique à chaque fois.
+  // et on se promène dans sa ville, `me` est renvoyé à l'identique à chaque fois. Le
+  // verrou tolère quelques mètres, et pas seulement la valeur exacte : depuis que la
+  // position est suivie en continu, une mesure arrive dès qu'on a fait huit pas.
   const lastOrigin = useRef<LngLat | null>(null)
   const origin: LngLat | null = useMemo(() => {
     const center = view ? { lon: view.position.lon, lat: view.position.lat } : null
@@ -85,9 +98,7 @@ export default function App() {
     const next = !me ? center : !center ? me : distanceMeters(me, center) < 30_000 ? me : center
 
     const previous = lastOrigin.current
-    if (previous && next && previous.lon === next.lon && previous.lat === next.lat) {
-      return previous
-    }
+    if (previous && next && distanceMeters(previous, next) < ORIGIN_EPSILON_M) return previous
     lastOrigin.current = next
     return next
   }, [geo.position, view])
@@ -114,6 +125,15 @@ export default function App() {
       map.current?.flyTo({ lon: position.lon, lat: position.lat, zoom: 13.6 })
     })
   }, [geo])
+
+  // Le marqueur suit la position tout seul, `geo.position` étant tenu à jour par le
+  // suivi. Reste la carte : tant qu'elle est en mode suivi, elle glisse avec le point
+  // plutôt que de le laisser sortir de l'écran. Un geste sur la carte, une recherche ou
+  // une épingle amenée dans la vue rendent la main (`followUser` retombe).
+  useEffect(() => {
+    if (!followUser || !geo.position) return
+    map.current?.follow({ lon: geo.position.lon, lat: geo.position.lat })
+  }, [followUser, geo.position])
 
   // Mémorisation des filtres + synchronisation de l'URL.
   useEffect(() => {
@@ -188,7 +208,13 @@ export default function App() {
     setSelectedId(id)
     if (!id) return
     const item = latestItems.current.find((entry) => entry.id === id)
-    if (item) map.current?.focus(item, Math.min(latestHeight.current * 0.6, 420))
+    if (!item) return
+    // Amener une épingle masquée dans la vue, c'est regarder ailleurs que soi : le suivi
+    // ramènerait le centre sur la position quelques pas plus loin, et masquerait de
+    // nouveau l'équipement qu'on vient d'ouvrir. Une épingle déjà visible ne déplace
+    // rien, et le suivi continue.
+    const moved = map.current?.focus(item, Math.min(latestHeight.current * 0.6, 420))
+    if (moved) setFollowUser(false)
   }, [])
 
   const locateMe = useCallback(() => {
@@ -227,7 +253,7 @@ export default function App() {
         userPosition={geo.position}
         onViewChange={onViewChange}
         onSelect={onSelect}
-        onMoveStart={() => setFollowUser(false)}
+        onUserMove={() => setFollowUser(false)}
       />
 
       {/* Voile dégradé : les commandes blanches restent lisibles sur une carte chargée. */}

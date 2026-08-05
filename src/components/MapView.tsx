@@ -36,8 +36,10 @@ const ATTRIBUTION = [
 export interface MapViewHandle {
   /** Recentre la carte sur un point (recherche, géolocalisation). */
   flyTo(target: LngLat & { zoom?: number }): void
-  /** Amène un équipement dans la zone visible s'il est masqué. */
-  focus(target: LngLat, bottomPadding: number): void
+  /** Amène un équipement dans la zone visible s'il est masqué. Vrai si la carte a bougé. */
+  focus(target: LngLat, bottomPadding: number): boolean
+  /** Fait glisser la carte pour garder la position de l'utilisateur sous le centre. */
+  follow(target: LngLat): void
 }
 
 interface Props {
@@ -48,8 +50,22 @@ interface Props {
   userPosition: UserPosition | null
   onViewChange: (position: MapPosition, bbox: Bbox) => void
   onSelect: (id: string | null) => void
-  onMoveStart?: () => void
+  /**
+   * La personne prend la carte en main (glissement, pincement, dépliage d'un
+   * regroupement) : le suivi de la position doit lui rendre la main.
+   */
+  onUserMove?: () => void
 }
+
+/**
+ * Décentrage toléré avant de faire glisser la carte, en pixels.
+ *
+ * Le suivi livre une mesure tous les huit mètres, soit moins de deux pixels au zoom
+ * d'arrivée : animer pour cela ferait une salve d'événements (`moveend`, URL réécrite,
+ * emprise recalculée) sans que rien ne bouge à l'écran. Quelques pixels de dérive ne se
+ * voient pas, et la carte glisse d'un seul mouvement lisible quand ils sont dépassés.
+ */
+const FOLLOW_SLACK_PX = 6
 
 /**
  * Dessine une épingle : goutte pleine dans la couleur du sport, pastille blanche
@@ -204,7 +220,7 @@ export function MapView({
   userPosition,
   onViewChange,
   onSelect,
-  onMoveStart,
+  onUserMove,
 }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -213,8 +229,8 @@ export function MapView({
   const [styleError, setStyleError] = useState(false)
 
   // Les callbacks sont lus via une ref : les gestionnaires MapLibre ne sont posés qu'une fois.
-  const handlers = useRef({ onViewChange, onSelect, onMoveStart })
-  handlers.current = { onViewChange, onSelect, onMoveStart }
+  const handlers = useRef({ onViewChange, onSelect, onUserMove })
+  handlers.current = { onViewChange, onSelect, onUserMove }
 
   // Idem pour l'état : à chaque changement de style, les couches sont réinstallées
   // et doivent repartir des données courantes.
@@ -378,7 +394,13 @@ export function MapView({
 
     const emitView = () => handlers.current.onViewChange(readPosition(map), readBbox(map))
     map.on('moveend', emitView)
-    map.on('movestart', () => handlers.current.onMoveStart?.())
+    // Seuls les gestes portent un `originalEvent` : un recentrage programmé (arrivée sur
+    // la position, suivi, épingle masquée) n'est pas une reprise en main. Sans ce test,
+    // le suivi s'arrêtait sur son propre premier déplacement — et le bouton « Me
+    // localiser » s'éteignait dans la seconde qui suivait la tape.
+    map.on('movestart', (event) => {
+      if (event.originalEvent) handlers.current.onUserMove?.()
+    })
 
     const pickFeature = (event: MapMouseEvent): MapGeoJSONFeature | null => {
       const pad = 10
@@ -400,6 +422,10 @@ export function MapView({
       }
 
       if (feature.properties?.point_count) {
+        // Déplier un regroupement, c'est aller voir ailleurs que soi : le suivi rend la
+        // main. Le geste est bien de la personne, mais le déplacement qui suit est
+        // programmé — il ne portera pas d'`originalEvent`, d'où l'appel explicite.
+        handlers.current.onUserMove?.()
         const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined
         const clusterId = feature.properties.cluster_id as number
         const geometry = feature.geometry
@@ -514,7 +540,7 @@ export function MapView({
       flyTo,
       focus: (target, bottomPadding) => {
         const map = mapRef.current
-        if (!map) return
+        if (!map) return false
         // On ne bouge la carte que si le point est masqué par l'en-tête, la feuille
         // de résultats ou hors écran : recentrer sans raison est désagréable.
         const { x, y } = map.project([target.lon, target.lat])
@@ -524,12 +550,27 @@ export function MapView({
           x < canvas.clientWidth - 24 &&
           y > 150 &&
           y < canvas.clientHeight - bottomPadding
-        if (visible) return
+        if (visible) return false
         map.easeTo({
           center: [target.lon, target.lat],
           offset: [0, -bottomPadding / 3],
           duration: 600,
         })
+        return true
+      },
+      follow: (target) => {
+        const map = mapRef.current
+        if (!map) return
+        // Une animation en cours (arrivée sur la position, dépliage d'un regroupement)
+        // ne doit pas être coupée : la mesure suivante remettra le centre en place.
+        if (map.isMoving()) return
+        const { x, y } = map.project([target.lon, target.lat])
+        const canvas = map.getCanvas()
+        const drift = Math.hypot(x - canvas.clientWidth / 2, y - canvas.clientHeight / 2)
+        if (drift < FOLLOW_SLACK_PX) return
+        // Sans `essential`, `prefers-reduced-motion` recentre d'un coup au lieu de
+        // glisser : le suivi continue de fonctionner, sans le mouvement.
+        map.easeTo({ center: [target.lon, target.lat], duration: 700 })
       },
     }),
     [flyTo],
