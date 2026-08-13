@@ -1,0 +1,129 @@
+# Sports de rue — o2switch (cPanel, Apache/LiteSpeed), équivalent de `netlify.toml`.
+#
+# Pourquoi un troisième fichier alors que `deploy/Caddyfile` et `deploy/nginx/` existent :
+# o2switch est un hébergement mutualisé. Aucun accès au fichier de configuration du
+# serveur, tout passe par `.htaccess`. La mécanique change, le contrat non.
+#
+# Où le poser : à la **racine du dossier public** du domaine (`public_html/` par défaut),
+# à côté du contenu de `dist/`. Il n'est volontairement pas livré dans `dist/` — les
+# configurations de serveur vivent dans `deploy/`, jamais dans le build, sinon le service
+# worker les précacherait.
+#
+# Bonne nouvelle face à nginx : Apache **cumule** les en-têtes des portées imbriquées au
+# lieu de les remplacer. Les en-têtes de sécurité déclarés une fois ici s'appliquent donc
+# aussi aux fichiers qui redéfinissent leur `Cache-Control`, et il n'y a pas de fichier à
+# réinclure partout.
+#
+# Ce que o2switch fournit et qu'il ne faut pas redéclarer : le certificat (AutoSSL) et la
+# compression (LiteSpeed compresse seul). Ce qu'il ne fournit pas : la redirection vers
+# HTTPS, HSTS, et tout ce qui suit.
+#
+# Non éprouvé : aucun Apache n'a pu être exécuté dans l'environnement de développement.
+# C'est l'arbitre qui tranche, après la mise en ligne :
+#   npm run verifie-deploiement -- https://sportsderue.app
+
+Options -Indexes -MultiViews
+DirectoryIndex index.html
+
+# --- 1. HTTPS, puis un seul domaine canonique ----------------------------------------
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Le service worker et la géolocalisation exigent un contexte sécurisé : sans cette
+  # redirection, une arrivée en `http://` donne une application muette et sans mise à jour.
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+  # `sportsderue.app` et `sportderue.app` ne doivent pas servir deux copies vivantes :
+  # deux origines valent deux service workers, deux installations et deux caches. Et comme
+  # aucun hôte n'est écrit en dur dans le code, `share()` fabrique ses liens sur l'origine
+  # courante — sans redirection permanente, quelqu'un arrivé sur l'alias diffuserait des
+  # liens sur le mauvais domaine, indéfiniment.
+  # À décommenter quand les deux domaines sont réellement rattachés au compte.
+  # RewriteCond %{HTTP_HOST} !^sportsderue\.app$ [NC]
+  # RewriteRule ^ https://sportsderue.app%{REQUEST_URI} [R=301,L]
+
+  # Repli page unique. L'état de la vue vit dans l'URL (`lat`, `lng`, `z`, `s`, `f`, `e`) :
+  # un lien partagé doit rendre l'accueil, pas un 404. Les deux conditions laissent passer
+  # ce qui existe vraiment sur le disque, `/data/playgrounds/*.json` compris.
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ /index.html [L]
+</IfModule>
+
+# --- 2. Types MIME -------------------------------------------------------------------
+# `.webmanifest` est le seul que le serveur ne connaît pas d'office ; les polices sont
+# auto-hébergées, donc `.woff2` passe par ici aussi.
+<IfModule mod_mime.c>
+  AddType application/manifest+json .webmanifest
+  AddType image/svg+xml .svg
+  AddType font/woff2 .woff2
+</IfModule>
+
+# --- 3. Compression ------------------------------------------------------------------
+# Netlify compressait tout de lui-même (`br`) : c'est le premier service qu'on perd en
+# partant. LiteSpeed compresse aussi seul, mais rien ne le garantit dans le temps, et les
+# 936 ko de MapLibre partiraient bruts au lieu de ~243 ko sans que rien ne le signale.
+# Ni les `.woff2` ni les images : déjà compressés, les repasser ne brûle que du processeur.
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css text/plain text/javascript
+  AddOutputFilterByType DEFLATE application/javascript application/json
+  AddOutputFilterByType DEFLATE application/manifest+json image/svg+xml
+</IfModule>
+
+# --- 4. Règles de cache --------------------------------------------------------------
+# `mod_expires` peut être actif par défaut chez l'hébergeur et poserait son propre
+# `Cache-Control` par-dessus : on le neutralise pour ne garder qu'une seule autorité.
+<IfModule mod_expires.c>
+  ExpiresActive Off
+</IfModule>
+
+<IfModule mod_headers.c>
+  # Fichiers à empreinte : leur nom change avec leur contenu, ils peuvent être gardés pour
+  # toujours. `<FilesMatch>` ne sait pas viser un répertoire, d'où le drapeau posé sur
+  # l'URL demandée pour `/assets/`.
+  SetEnvIf Request_URI "^/assets/" EMPREINTE
+  Header always set Cache-Control "public, max-age=31536000, immutable" env=EMPREINTE
+
+  <FilesMatch "^workbox-.*\.js$">
+    Header always set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+
+  # Fichiers à nom stable : ce sont eux qui annoncent qu'il y a du neuf. Un `max-age` sur
+  # l'un des trois et l'application installée reste figée sur son ancienne version — sans
+  # rien signaler, elle continue de fonctionner. C'est le symptôme signalé depuis un
+  # téléphone en août 2026, celui qui obligeait à vider le cache à la main.
+  # `sw.js` en premier : c'est le seul fichier que l'application réinterroge d'elle-même.
+  <FilesMatch "^(sw\.js|index\.html|manifest\.webmanifest)$">
+    Header always set Cache-Control "public, max-age=0, must-revalidate"
+  </FilesMatch>
+
+  # `/` passe par `DirectoryIndex` : le drapeau garantit la même règle sur la racine, sans
+  # dépendre de la façon dont le serveur résout l'index.
+  SetEnvIf Request_URI "^/$" RACINE
+  Header always set Cache-Control "public, max-age=0, must-revalidate" env=RACINE
+</IfModule>
+
+# --- 5. En-têtes de sécurité, identiques à `netlify.toml` -----------------------------
+# `always` les pose y compris sur les réponses d'erreur (404, 5xx).
+<IfModule mod_headers.c>
+  Header always set Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://data.geopf.fr https://equipements.sports.gouv.fr"
+
+  # Doublon assumé de `frame-ancestors`, pour les navigateurs qui ne lisent que celui-ci.
+  Header always set X-Frame-Options "DENY"
+  Header always set X-Content-Type-Options "nosniff"
+  # Les URL portent la position et l'équipement consulté, et l'application ouvre des liens
+  # vers Google Maps, Apple Maps et OpenStreetMap : ils ne doivent emporter que l'origine.
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=(), accelerometer=(), gyroscope=(), magnetometer=(), interest-cohort=()"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+
+  # Netlify posait HSTS de lui-même : hors de chez lui, il faut le déclarer. `preload`
+  # n'est à ajouter que si le domaine est réellement soumis à la liste de préchargement —
+  # c'est très difficile à défaire, donc absent par défaut.
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+  # Rien à gagner à annoncer la version du serveur.
+  Header always unset X-Powered-By
+</IfModule>

@@ -140,6 +140,9 @@ sans quoi la géolocalisation et le service worker sont désactivés par les nav
 - **Serveur personnel** — configurations prêtes dans `deploy/` : `deploy/Caddyfile`
   (le plus court, Caddy gère seul le certificat, la compression et les types MIME) et
   `deploy/nginx/` (deux fichiers, voir le piège d'héritage des en-têtes signalé dedans).
+- **Mutualisé cPanel (o2switch…)** — `deploy/o2switch/.htaccess`, à déposer à la racine du
+  dossier public à côté du contenu de `dist/`. Il couvre le repli page unique, les règles
+  de cache, la redirection HTTPS, HSTS et les en-têtes de sécurité.
 - **Autre hébergeur, dans un sous-chemin** — passer `BASE_PATH=/mon-chemin/` au build :
   les URL d'assets, le `start_url`/`scope` du manifeste et le repli du service worker
   suivent automatiquement.

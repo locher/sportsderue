@@ -673,7 +673,7 @@ Et surtout, la règle dont tout dépend : `sw.js`, `index.html` et `manifest.web
 figée sur son ancienne version — c'est le symptôme signalé depuis un téléphone, celui qui
 obligeait à vider le cache à la main. Rien ne le signale, l'application marche.
 
-Trois choses sont donc en place, à tenir à jour ensemble :
+Quatre choses sont donc en place, à tenir à jour ensemble :
 
 - `deploy/Caddyfile` — le chemin le plus court : Caddy gère certificat, compression et
   types MIME tout seul, et n'a pas le piège d'héritage de nginx.
@@ -681,14 +681,21 @@ Trois choses sont donc en place, à tenir à jour ensemble :
   `location` déclare un `add_header`, il perd tous ceux hérités du parent**. Comme chaque
   `location` pose son propre `Cache-Control`, les en-têtes de sécurité s'évaporeraient de
   tout ce qui n'est pas l'accueil. D'où le fichier inclus dans *chaque* `location`.
+- `deploy/o2switch/.htaccess` — pour un mutualisé cPanel (o2switch, et la plupart des
+  hébergeurs français à cette formule) : aucun accès à la configuration du serveur, tout
+  passe par `.htaccess`. Deux différences à connaître par rapport à nginx : Apache
+  **cumule** les en-têtes des portées imbriquées au lieu de les remplacer (donc pas de
+  fichier à réinclure), et `<FilesMatch>` ne sait pas viser un répertoire — `/assets/`
+  passe par un `SetEnvIf` sur l'URL demandée. L'hébergeur fournit le certificat (AutoSSL)
+  et la compression (LiteSpeed) ; il ne fournit ni la redirection HTTPS ni HSTS.
 - `scripts/verifie-deploiement.mjs` — **l'arbitre**. Il ne connaît pas l'hébergeur,
   seulement le contrat, et se lance contre n'importe quelle URL :
   `npm run verifie-deploiement -- https://mon-site.fr`. C'est lui qui empêche les trois
   configurations de diverger : plutôt que de les comparer entre elles, on vérifie ce que
   le site sert réellement.
 
-Ni nginx ni Caddy n'ont pu être exécutés dans le conteneur (pas de démon Docker) : les
-configurations sont écrites, pas éprouvées. Le *contrat*, lui, l'est — un serveur local
+Ni nginx, ni Caddy, ni Apache n'ont pu être exécutés dans le conteneur (pas de démon
+Docker) : les configurations sont écrites, pas éprouvées. Le *contrat*, lui, l'est — un serveur local
 appliquant les mêmes règles passe le contrôle, et le parcours complet de l'application y
 tourne sans erreur. La première mise en ligne doit donc commencer par le script.
 
