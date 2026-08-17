@@ -34,10 +34,22 @@ soit installable comme une application, et que ça reste gratuit à héberger.
   de commencer, elle avance aussi de son côté.
 - **Rien ne se déploie sur un push.** La mise en ligne est déclenchée par une **étiquette
   de version** (`git tag v1.2.0 && git push origin v1.2.0`), qui lance
-  `.github/workflows/deploiement.yml` : build, `.htaccess` joint au site, envoi en `rsync`
-  par SSH vers o2switch, puis `verifie-deploiement` contre le site réellement servi. C'est
-  volontaire — une application installée qui reçoit une version cassée n'a pas de bouton
-  « recharger », donc la mise en ligne doit être un geste explicite.
+  `.github/workflows/deploiement.yml` : build, `.htaccess` joint au site, envoi vers
+  o2switch, puis `verifie-deploiement` contre le site réellement servi. C'est volontaire —
+  une application installée qui reçoit une version cassée n'a pas de bouton « recharger »,
+  donc la mise en ligne doit être un geste explicite.
+- **Deux transports, choisis par la variable `DEPLOIEMENT_TRANSPORT`** (`ssh` par défaut,
+  `ftps` en repli, basculable depuis l'interface sans toucher au code). `rsync` par SSH est
+  le meilleur outil — clé plutôt que mot de passe, n'envoie que le delta. FTPS n'a qu'un
+  avantage, mais il compte : l'identifiant peut être un **compte FTP secondaire cloisonné**
+  sur la racine publique, là où SSH donne le compte cPanel entier — d'où les garde-fous sur
+  le chemin dans la branche SSH du workflow.
+- L'ordre de l'envoi n'est pas cosmétique, dans les deux transports : **deux passages**,
+  les fichiers à empreinte d'abord sans rien supprimer, puis les trois fichiers à nom stable
+  et le ménage. Sinon quelqu'un qui charge la page pendant le transfert reçoit un
+  `index.html` qui désigne des fichiers pas encore arrivés. Et deux exclusions à ne jamais
+  retirer, `.well-known` (validation AutoSSL) et `cgi-bin` (créé par cPanel) : les
+  supprimer casse le renouvellement du certificat, en silence et des semaines plus tard.
 - Un push sur `main` (ou une pull request vers elle) ne déclenche que
   `.github/workflows/verification.yml` : `npm run build`, donc `tsc --noEmit` puis Vite.
   C'est le témoin vert, il ne publie rien.
@@ -54,12 +66,26 @@ soit installable comme une application, et que ça reste gratuit à héberger.
   (`https://dns.google/resolve?name=…&type=NS`) et l'état de l'enregistrement en RDAP
   (`https://rdap.nic.fr/domain/…`) : c'est ce qui distingue « pas encore propagé » de
   « mal configuré ».
-- **Piège o2switch à connaître** : l'accès SSH est filtré par liste blanche d'adresses IP
-  (outil « Autorisation SSH » de cPanel), et les runners GitHub changent d'IP à chaque
-  exécution. Le filtre doit avoir été levé par le support pour le compte, sinon le
-  déploiement échoue en délai d'attente sans autre explication. Si le support refuse, la
-  solution de repli est le même workflow en FTPS (`lftp mirror --delete`), que la liste
-  blanche ne concerne pas.
+- **Le point à connaître sur o2switch** : l'accès SSH est filtré par liste blanche
+  d'adresses IP (outil « Autorisation SSH » de cPanel), et les runners GitHub changent d'IP
+  à chaque exécution. Mais leur documentation ajoute que « les services massivement
+  utilisés, comme par exemple GitHub, Bitbucket […] devraient déjà être en liste blanche ».
+  Devraient. D'où `.github/workflows/test-connexion.yml`, à lancer **avant la première
+  étiquette** : il essaie la connexion en lecture seule (`pwd`, `ls`), écrit un verdict dans
+  le résumé du job et distingue les trois échecs qui ne se soignent pas pareil — délai
+  d'attente (pare-feu), `Permission denied` (clé importée mais pas *autorisée* dans cPanel,
+  le bouton se rate facilement), empreinte inconnue (`ssh-keyscan` à refaire).
+- Trois choses que la documentation d'o2switch ne dit pas au même endroit et qui ferment des
+  portes : **le SFTP n'est pas disponible sur les comptes FTP secondaires** (donc pas de
+  transport cloisonné sur le port 22), **l'outil Git de cPanel exige lui aussi un accès SSH
+  ouvert** (il ne contourne donc pas le pare-feu), et le port 21 n'est pas proposé dans
+  l'outil d'exception pare-feu — c'est ce qui laisse penser que FTPS n'est pas filtré.
+- **Piège FTPS**, si on y passe : le certificat vérifié est celui du serveur FTP, qui porte
+  son propre nom d'hôte (`xxx.o2switch.net`) et pas forcément le domaine. En cas d'échec de
+  vérification, corriger l'hôte — **jamais** désactiver `ssl:verify-certificate`, ce qui
+  reviendrait à chiffrer sans savoir vers qui. Et garder `ftp:list-options -a` : sans elle
+  `LIST` n'énumère pas les fichiers cachés, donc le `.htaccess` ne partirait jamais et tout
+  le contrat de service avec lui.
 - Un déploiement automatique sur GitHub Pages a existé
   (`.github/workflows/deploy-pages.yml`) : il ne publiait jamais — `configure-pages`
   échouait (`Resource not accessible by integration`, créer le site Pages est un droit

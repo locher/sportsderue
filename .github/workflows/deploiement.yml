@@ -6,19 +6,47 @@
 # irréversible du projet (une application installée qui reçoit une version cassée n'a pas
 # de bouton « recharger »). Une étiquette est une décision explicite, un push non.
 #
-# Secrets à renseigner dans Settings → Secrets and variables → Actions :
+# ## Deux transports, et pourquoi
 #
-#   O2SWITCH_HOTE          nom d'hôte SSH (le domaine hébergé fait l'affaire)
+# **`rsync` par SSH est le défaut**, parce que c'est le meilleur outil : authentification
+# par clé (aucun mot de passe à stocker), n'envoie que ce qui a changé, et `--delete` fait
+# le ménage proprement.
+#
+# Son seul risque est en dehors du code : o2switch **filtre SSH par liste blanche
+# d'adresses IP**, et les runners GitHub en changent à chaque exécution. Leur documentation
+# précise toutefois que « les services massivement utilisés, comme par exemple GitHub,
+# Bitbucket […] devraient déjà être en liste blanche ». Devraient. Le workflow
+# `test-connexion.yml` répond à la question en lecture seule, sans rien déployer : à lancer
+# avant la première étiquette.
+#
+# **FTPS explicite est le repli**, à activer sans toucher au code : Settings → Secrets and
+# variables → Actions → onglet *Variables* → `DEPLOIEMENT_TRANSPORT` = `ftps`. Le port 21
+# n'est soumis à aucun filtre (il n'est même pas proposé dans l'outil d'exception pare-feu)
+# et il autorise un identifiant au rayon d'impact plus petit : un compte FTP secondaire
+# cloisonné sur la racine publique, qui ne peut rien atteindre d'autre. C'est le seul point
+# où le repli est *meilleur* que le défaut — en SSH, l'identifiant est celui du compte
+# cPanel entier, d'où les garde-fous sur le chemin plus bas.
+#
+# ## Secrets (Settings → Secrets and variables → Actions)
+#
+# Transport SSH :
+#   O2SWITCH_HOTE          nom d'hôte (le domaine hébergé fait l'affaire)
 #   O2SWITCH_UTILISATEUR   identifiant cPanel
 #   O2SWITCH_CLE_SSH       clé privée dédiée au déploiement, en entier
 #   O2SWITCH_HOTES_CONNUS  sortie de `ssh-keyscan <hôte>`, pour ne pas faire confiance
 #                          aveuglément au premier serveur qui répond
-#   O2SWITCH_RACINE        chemin absolu de la racine publique (ex. /home/xxx/public_html)
+#   O2SWITCH_RACINE        chemin absolu de la racine publique (/home/xxx/public_html)
 #
-# À savoir avant le premier essai : o2switch filtre SSH par liste blanche d'adresses IP,
-# et les runners GitHub en changent à chaque exécution. Il faut donc demander au support
-# o2switch de lever ce filtre pour le compte, sinon la connexion échoue en délai
-# d'attente. Voir le README.
+# Transport FTPS :
+#   O2SWITCH_FTP_HOTE / _UTILISATEUR / _MOTDEPASSE, et
+#   O2SWITCH_FTP_RACINE — `/` si le compte FTP est cloisonné sur la racine publique, ce qui
+#   rend alors une erreur de chemin impossible.
+#
+#   Attention pour `O2SWITCH_FTP_HOTE` : le certificat vérifié est celui que présente le
+#   serveur FTP, qui porte son propre nom d'hôte (`xxx.o2switch.net`) et pas forcément le
+#   domaine. Si la vérification échoue, renseigner le nom d'hôte du serveur plutôt que
+#   `sportsderue.fr` — et ne jamais « régler » le problème en désactivant
+#   `ssl:verify-certificate`, ce qui reviendrait à chiffrer sans savoir vers qui.
 
 name: Déploiement
 
@@ -37,6 +65,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  TRANSPORT: ${{ vars.DEPLOIEMENT_TRANSPORT || 'ssh' }}
+
 jobs:
   deployer:
     runs-on: ubuntu-latest
@@ -48,26 +79,41 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Vérifier que les secrets sont renseignés
+      - name: Vérifier que les secrets du transport retenu sont renseignés
         env:
           HOTE: ${{ secrets.O2SWITCH_HOTE }}
           UTILISATEUR: ${{ secrets.O2SWITCH_UTILISATEUR }}
-          CLE: ${{ secrets.O2SWITCH_CLE_SSH }}
+          CLE_SSH: ${{ secrets.O2SWITCH_CLE_SSH }}
           HOTES_CONNUS: ${{ secrets.O2SWITCH_HOTES_CONNUS }}
           RACINE: ${{ secrets.O2SWITCH_RACINE }}
+          FTP_HOTE: ${{ secrets.O2SWITCH_FTP_HOTE }}
+          FTP_UTILISATEUR: ${{ secrets.O2SWITCH_FTP_UTILISATEUR }}
+          FTP_MOTDEPASSE: ${{ secrets.O2SWITCH_FTP_MOTDEPASSE }}
+          FTP_RACINE: ${{ secrets.O2SWITCH_FTP_RACINE }}
         run: |
+          echo "Transport : $TRANSPORT"
+          case "$TRANSPORT" in
+            ssh)  attendus='HOTE UTILISATEUR CLE_SSH HOTES_CONNUS RACINE'; prefixe=O2SWITCH_ ;;
+            ftps) attendus='FTP_HOTE FTP_UTILISATEUR FTP_MOTDEPASSE FTP_RACINE'; prefixe=O2SWITCH_ ;;
+            *) echo "::error::DEPLOIEMENT_TRANSPORT doit valoir « ssh » ou « ftps », reçu « $TRANSPORT »"; exit 1 ;;
+          esac
           manquants=''
-          for nom in HOTE UTILISATEUR CLE HOTES_CONNUS RACINE; do
-            [ -n "${!nom}" ] || manquants="$manquants O2SWITCH_$nom"
+          for nom in $attendus; do
+            [ -n "${!nom}" ] || manquants="$manquants $prefixe$nom"
           done
           if [ -n "$manquants" ]; then
             echo "::error::Secrets manquants :$manquants"
             exit 1
           fi
-          case "$RACINE" in
-            /*) ;;
-            *) echo "::error::O2SWITCH_RACINE doit être un chemin absolu, reçu « $RACINE »"; exit 1 ;;
-          esac
+          # En SSH l'identifiant est celui du compte cPanel entier : un chemin fautif ferait
+          # porter le `--delete` ailleurs. En FTPS le compte est cloisonné, la question ne
+          # se pose pas.
+          if [ "$TRANSPORT" = ssh ]; then
+            case "$RACINE" in
+              /*) ;;
+              *) echo "::error::O2SWITCH_RACINE doit être un chemin absolu, reçu « $RACINE »"; exit 1 ;;
+            esac
+          fi
 
       - run: npm ci
 
@@ -79,7 +125,9 @@ jobs:
       - name: Joindre le .htaccess au site construit
         run: cp deploy/o2switch/.htaccess dist/.htaccess
 
+      # ------------------------------------------------------------------ transport SSH --
       - name: Préparer la connexion SSH
+        if: env.TRANSPORT == 'ssh'
         env:
           HOTE: ${{ secrets.O2SWITCH_HOTE }}
           UTILISATEUR: ${{ secrets.O2SWITCH_UTILISATEUR }}
@@ -105,11 +153,17 @@ jobs:
           CONF
           chmod 600 ~/.ssh/config
 
-      - name: Envoyer le site
+      - name: Envoyer le site (rsync par SSH)
+        if: env.TRANSPORT == 'ssh'
         env:
           RACINE: ${{ secrets.O2SWITCH_RACINE }}
         run: |
           set -euo pipefail
+          if ! ssh o2switch true 2>/tmp/ssh.log; then
+            echo "::error::Connexion SSH impossible. Si c'est un délai d'attente, le pare-feu d'o2switch bloque l'IP du runner : basculer la variable DEPLOIEMENT_TRANSPORT sur « ftps »."
+            cat /tmp/ssh.log
+            exit 1
+          fi
           ssh o2switch "test -d '$RACINE'" \
             || { echo "::error::La racine publique $RACINE n'existe pas sur le serveur"; exit 1; }
 
@@ -131,6 +185,51 @@ jobs:
           rsync -rlptz --delete --chmod=D755,F644 \
             --exclude '/.well-known/' --exclude '/cgi-bin/' \
             dist/ "o2switch:$RACINE/"
+
+      # ----------------------------------------------------------------- transport FTPS --
+      - name: Installer lftp
+        if: env.TRANSPORT == 'ftps'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      - name: Envoyer le site (FTPS)
+        if: env.TRANSPORT == 'ftps'
+        env:
+          HOTE: ${{ secrets.O2SWITCH_FTP_HOTE }}
+          UTILISATEUR: ${{ secrets.O2SWITCH_FTP_UTILISATEUR }}
+          # lftp lit le mot de passe dans cette variable avec `--env-password`, ce qui évite
+          # de l'écrire dans une ligne de commande.
+          LFTP_PASSWORD: ${{ secrets.O2SWITCH_FTP_MOTDEPASSE }}
+          RACINE: ${{ secrets.O2SWITCH_FTP_RACINE }}
+        run: |
+          set -euo pipefail
+          lftp -u "$UTILISATEUR" --env-password "ftps://$HOTE" <<LFTP
+          # Chiffrement, les trois lignes qui comptent. FTPS explicite démarre en clair et
+          # bascule en TLS : un client peut donc « retomber » silencieusement en FTP non
+          # chiffré si la bascule échoue — o2switch le signale lui-même à propos de
+          # FileZilla. \`ssl-force\` interdit ce repli, \`ssl-protect-data\` chiffre aussi le
+          # canal de données (sinon seuls les identifiants le sont, pas les fichiers), et
+          # \`verify-certificate\` fait vérifier le certificat : sans elle, le chiffrement ne
+          # protège de personne.
+          set ftp:ssl-force true
+          set ftp:ssl-protect-data true
+          set ssl:verify-certificate true
+          set ftp:passive-mode true
+          set net:max-retries 3
+          set net:timeout 20
+          # Sans cette option, LIST n'énumère pas les fichiers cachés : le \`.htaccess\` ne
+          # serait jamais envoyé, et tout le contrat de service avec lui.
+          set ftp:list-options -a
+          set cmd:fail-exit true
+
+          lcd dist
+          cd $RACINE
+
+          # Même ordre en deux passages qu'en SSH, et pour la même raison.
+          mirror --reverse --parallel=4 --exclude '^(index\.html|sw\.js|manifest\.webmanifest)$'
+          mirror --reverse --delete --parallel=4 --exclude '^(\.well-known/|cgi-bin/)'
+
+          bye
+          LFTP
 
       # L'arbitre du dépôt, lancé contre le site réellement servi. Presque rien de ce qui
       # suit ne se voit à l'œil : un `max-age` de trop sur `sw.js` et les mises à jour ne

@@ -1,0 +1,113 @@
+# Répond à une seule question, sans rien déployer : depuis un runner GitHub, arrive-t-on à
+# se connecter à o2switch ?
+#
+# Elle se pose parce qu'o2switch filtre SSH par liste blanche d'adresses IP et que les
+# runners GitHub en changent à chaque exécution. Leur documentation dit que « les services
+# massivement utilisés, comme par exemple GitHub, Bitbucket […] devraient déjà être en liste
+# blanche » — ce workflow transforme ce « devraient » en fait établi.
+#
+# À lancer **avant la première étiquette de version** : Actions → Test de connexion →
+# Run workflow. Tout est en lecture seule (`pwd`, `ls`), rien n'est écrit sur le serveur.
+#
+# Si SSH échoue en délai d'attente, c'est le pare-feu : basculer la variable
+# `DEPLOIEMENT_TRANSPORT` sur `ftps` et relancer ce test pour confirmer le repli.
+
+name: Test de connexion
+
+on:
+  workflow_dispatch:
+    inputs:
+      transport:
+        description: 'Transport à tester'
+        type: choice
+        default: ssh
+        options: [ssh, ftps, les-deux]
+
+permissions:
+  contents: read
+
+jobs:
+  tester:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Adresse publique du runner
+        run: |
+          ip=$(curl -sS --max-time 15 https://api.ipify.org || echo inconnue)
+          echo "IP sortante du runner : $ip"
+          echo "IP sortante du runner : \`$ip\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: SSH
+        if: inputs.transport == 'ssh' || inputs.transport == 'les-deux'
+        continue-on-error: true
+        env:
+          HOTE: ${{ secrets.O2SWITCH_HOTE }}
+          UTILISATEUR: ${{ secrets.O2SWITCH_UTILISATEUR }}
+          CLE: ${{ secrets.O2SWITCH_CLE_SSH }}
+          HOTES_CONNUS: ${{ secrets.O2SWITCH_HOTES_CONNUS }}
+          RACINE: ${{ secrets.O2SWITCH_RACINE }}
+        run: |
+          if [ -z "$HOTE" ] || [ -z "$CLE" ]; then
+            echo "### SSH — secrets absents, test ignoré" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$CLE" > ~/.ssh/id_test && chmod 600 ~/.ssh/id_test
+          printf '%s\n' "$HOTES_CONNUS" > ~/.ssh/known_hosts
+
+          # `ConnectTimeout` court : ici on veut un verdict, pas une réussite arrachée.
+          if ssh -i ~/.ssh/id_test -o IdentitiesOnly=yes -o BatchMode=yes \
+                 -o ConnectTimeout=15 -p 22 "$UTILISATEUR@$HOTE" \
+                 "echo CONNECTE; pwd; ls -d '$RACINE' 2>/dev/null || echo 'racine introuvable : $RACINE'" \
+                 2>/tmp/ssh.log; then
+            echo "### SSH — ✅ la connexion passe" >> "$GITHUB_STEP_SUMMARY"
+            echo "Le pare-feu d'o2switch laisse donc passer les runners GitHub : garder \`rsync\` par SSH." >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat /tmp/ssh.log
+            echo "### SSH — ❌ échec" >> "$GITHUB_STEP_SUMMARY"
+            if grep -qiE 'timed out|timeout|Connection refused|No route to host' /tmp/ssh.log; then
+              echo "Délai d'attente ou refus : **c'est le pare-feu**, l'IP du runner n'est pas en liste blanche. Basculer \`DEPLOIEMENT_TRANSPORT\` sur \`ftps\`, ou demander au support d'ajouter les plages GitHub." >> "$GITHUB_STEP_SUMMARY"
+            elif grep -qiE 'Permission denied|publickey' /tmp/ssh.log; then
+              echo "Le réseau passe mais la clé est refusée : la clé publique est-elle bien **autorisée** dans cPanel (le bouton « Autoriser », après l'import) ?" >> "$GITHUB_STEP_SUMMARY"
+            elif grep -qiE 'Host key verification|known_hosts' /tmp/ssh.log; then
+              echo "Empreinte du serveur non reconnue : régénérer \`O2SWITCH_HOTES_CONNUS\` avec \`ssh-keyscan\`." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            printf '```\n%s\n```\n' "$(cat /tmp/ssh.log)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: FTPS
+        if: inputs.transport == 'ftps' || inputs.transport == 'les-deux'
+        continue-on-error: true
+        env:
+          HOTE: ${{ secrets.O2SWITCH_FTP_HOTE }}
+          UTILISATEUR: ${{ secrets.O2SWITCH_FTP_UTILISATEUR }}
+          LFTP_PASSWORD: ${{ secrets.O2SWITCH_FTP_MOTDEPASSE }}
+          RACINE: ${{ secrets.O2SWITCH_FTP_RACINE }}
+        run: |
+          if [ -z "$HOTE" ] || [ -z "$LFTP_PASSWORD" ]; then
+            echo "### FTPS — secrets absents, test ignoré" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+          # Mêmes réglages de chiffrement que le déploiement : tester une connexion plus
+          # permissive que la vraie ne prouverait rien.
+          if lftp -u "$UTILISATEUR" --env-password "ftps://$HOTE" <<LFTP
+          set ftp:ssl-force true
+          set ftp:ssl-protect-data true
+          set ssl:verify-certificate true
+          set ftp:passive-mode true
+          set net:timeout 20
+          set ftp:list-options -a
+          set cmd:fail-exit true
+          cd $RACINE
+          pwd
+          ls
+          bye
+          LFTP
+          then
+            echo "### FTPS — ✅ la connexion passe, TLS forcé et certificat vérifié" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### FTPS — ❌ échec" >> "$GITHUB_STEP_SUMMARY"
+            echo "Trois causes, par ordre de fréquence : l'identifiant (forme \`xxx@sportsderue.fr\` pour un compte secondaire) ; \`O2SWITCH_FTP_RACINE\` qui n'existe pas (mettre \`/\` si le compte est cloisonné sur la racine publique) ; ou le **certificat**, qui porte le nom d'hôte du serveur et pas le domaine — dans ce cas renseigner \`xxx.o2switch.net\` dans \`O2SWITCH_FTP_HOTE\`, et surtout pas désactiver la vérification." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

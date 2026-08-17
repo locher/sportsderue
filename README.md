@@ -143,15 +143,23 @@ git push origin v1.0.0
 ```
 
 `.github/workflows/deploiement.yml` construit le site, y joint
-`deploy/o2switch/.htaccess`, l'envoie en `rsync` par SSH dans la racine publique, puis
-lance l'arbitre décrit plus bas contre le site réellement servi. Un push sur `main` ne
-déploie rien : il ne déclenche que `verification.yml`, qui vérifie que le build passe.
+`deploy/o2switch/.htaccess`, l'envoie dans la racine publique, puis lance l'arbitre décrit
+plus bas contre le site réellement servi. Un push sur `main` ne déploie rien : il ne
+déclenche que `verification.yml`, qui vérifie que le build passe.
 
-Les secrets attendus (`Settings → Secrets and variables → Actions`) sont listés en tête du
-workflow. **Point de vigilance propre à o2switch** : l'accès SSH est filtré par liste
-blanche d'adresses IP, et les runners GitHub en changent à chaque exécution — il faut
-demander au support de lever ce filtre pour le compte, sinon la connexion échoue en délai
-d'attente.
+Deux transports sont possibles, choisis par la variable `DEPLOIEMENT_TRANSPORT` :
+
+- **`ssh` (défaut)** — `rsync` par SSH, authentifié par clé. Le meilleur outil, mais
+  o2switch filtre SSH par liste blanche d'adresses IP alors que les runners GitHub en
+  changent à chaque exécution. Leur documentation indique que les services massivement
+  utilisés comme GitHub « devraient déjà être en liste blanche ».
+- **`ftps`** — `lftp` en FTPS explicite, TLS forcé et certificat vérifié. Aucun filtre sur
+  le port 21, et l'identifiant peut être un **compte FTP secondaire cloisonné** sur la
+  racine publique : rayon d'impact plus petit qu'en SSH, révocable en un clic.
+
+`.github/workflows/test-connexion.yml` (Actions → Run workflow) tranche entre les deux en
+lecture seule, sans rien déployer : à lancer avant la première étiquette. Les secrets
+attendus pour chaque transport sont listés en tête de `deploiement.yml`.
 
 Autres cibles, tenues à jour avec la précédente :
 
