@@ -16,8 +16,8 @@
  *
  * La sortie est découpée en **cellules d'un degré** (`public/data/playgrounds/`), que
  * l'application charge selon la vue. Une cellule pèse quelques kilo-octets, elle est
- * servie par Netlify avec les autres fichiers statiques et mise en cache par le
- * service worker : l'affichage devient instantané et fonctionne hors-ligne.
+ * servie avec les autres fichiers statiques et mise en cache par le service worker :
+ * l'affichage devient instantané et fonctionne hors-ligne.
  *
  * À relancer de temps en temps — les aires de jeux bougent peu. La date de génération
  * est inscrite dans `index.json` et affichée dans la fiche.

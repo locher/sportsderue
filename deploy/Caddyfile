@@ -1,9 +1,12 @@
-# Sports de rue — service Caddy, équivalent de `netlify.toml`.
+# Sports de rue — variante Caddy du contrat de service.
 #
-# Caddy est le chemin le plus court hors Netlify : il obtient et renouvelle le certificat
-# tout seul, compresse tout seul (gzip + zstd), connaît `.webmanifest`, et n'a pas le
-# piège d'héritage des en-têtes de nginx. Il ne reste à écrire que ce qui est propre au
-# projet — c'est-à-dire les règles de cache et les en-têtes de sécurité.
+# La production tourne sur o2switch : le fichier de référence est
+# `deploy/o2switch/.htaccess`, et celui-ci doit dire exactement la même chose.
+#
+# Caddy est le chemin le plus court sur un serveur qu'on administre : il obtient et
+# renouvelle le certificat tout seul, compresse tout seul (gzip + zstd), connaît
+# `.webmanifest`, et n'a pas le piège d'héritage des en-têtes de nginx. Il ne reste à
+# écrire que ce qui est propre au projet — les règles de cache et les en-têtes de sécurité.
 #
 # Vérifier après mise en ligne : npm run verifie-deploiement -- https://mon-site.fr
 
@@ -12,7 +15,7 @@ sportsderue.example.fr {
 
 	encode zstd gzip
 
-	# --- En-têtes de sécurité, identiques à `netlify.toml` ---------------------------
+	# --- En-têtes de sécurité, identiques au `.htaccess` de production ---------------
 	header {
 		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://data.geopf.fr https://equipements.sports.gouv.fr"
 		X-Frame-Options "DENY"
@@ -20,8 +23,8 @@ sportsderue.example.fr {
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=(), accelerometer=(), gyroscope=(), magnetometer=(), interest-cohort=()"
 		Cross-Origin-Opener-Policy "same-origin"
-		# Netlify posait HSTS de lui-même ; Caddy non. Retirer `preload` si le domaine
-		# n'est pas réellement soumis à la liste de préchargement.
+		# Retirer `preload` si le domaine n'est pas réellement soumis à la liste de
+		# préchargement : c'est difficile à défaire.
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		# Caddy annonce sa présence par défaut : inutile de le dire.
 		-Server

@@ -1,0 +1,37 @@
+# Témoin vert sur `main` : le build passe, ou il ne passe pas.
+#
+# Ce dépôt n'a ni ESLint ni tests unitaires (choix assumé, la vérification passe par un
+# parcours au navigateur). Il reste que `npm run build` lance `tsc --noEmit` avant Vite :
+# c'est la seule barrière automatique contre une erreur de typage, et elle vaut d'être
+# franchie ici plutôt que découverte au moment de poser une étiquette de version.
+#
+# Rien n'est déployé ici. La mise en ligne est déclenchée par une étiquette, voir
+# `deploiement.yml`.
+
+name: Vérification
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  construire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build

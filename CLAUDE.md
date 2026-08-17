@@ -28,27 +28,38 @@ soit installable comme une application, et que ça reste gratuit à héberger.
 
 ## Circuit de livraison
 
-- Branche de travail : `claude/sports-equipment-mapping-france-7gnbnn`. C'est aussi la
-  branche **par défaut** du dépôt (privé, propriétaire `locher`). Une tâche peut désigner
-  une autre branche (`claude/<sujet>-<suffixe>`) : dans ce cas elle **ne se déploie pas**,
-  seule la branche par défaut est branchée sur Netlify. Il faut donc fusionner pour voir le
-  résultat en ligne, et penser à récupérer la branche par défaut avant de commencer — elle
-  avance aussi de son côté.
-- **Netlify est branché sur le dépôt** : chaque push sur cette branche déclenche un build
-  (`netlify.toml` : `npm run build` → `dist`) et met le site à jour en ~90 s. Rien d'autre
-  à faire après un push, et aucun jeton n'est nécessaire.
-- Corollaire : je n'ai pas d'accès Netlify, donc **je ne peux pas lire le résultat du
-  build**. D'où la règle : toujours lancer `npm run build` localement avant de pousser.
-  Le site lui-même est **protégé par mot de passe** (une requête anonyme renvoie 401 et une
-  page « Login Redirect » vers `app.netlify.com/edge-access`) : inutile d'essayer de vérifier
-  le déploiement en `curl`, ça ne dira jamais rien d'autre. La seule vérification possible
-  de mon côté est locale, sur le serveur Vite (voir « Vérifier son travail »).
-- **Netlify est le seul circuit de déploiement**, et le dépôt n'a plus aucun workflow GitHub
-  Actions. Un déploiement automatique sur GitHub Pages a existé
-  (`.github/workflows/deploy-pages.yml`) : il ne publiait jamais — `configure-pages` échouait
-  (`Resource not accessible by integration`, créer le site Pages est un droit
+- Une seule branche : **`main`**, branche par défaut du dépôt (privé, propriétaire
+  `locher`). Une tâche peut désigner une branche de travail (`claude/<sujet>-<suffixe>`) :
+  elle ne déploie rien et doit être fusionnée dans `main`. Penser à récupérer `main` avant
+  de commencer, elle avance aussi de son côté.
+- **Rien ne se déploie sur un push.** La mise en ligne est déclenchée par une **étiquette
+  de version** (`git tag v1.2.0 && git push origin v1.2.0`), qui lance
+  `.github/workflows/deploiement.yml` : build, `.htaccess` joint au site, envoi en `rsync`
+  par SSH vers o2switch, puis `verifie-deploiement` contre le site réellement servi. C'est
+  volontaire — une application installée qui reçoit une version cassée n'a pas de bouton
+  « recharger », donc la mise en ligne doit être un geste explicite.
+- Un push sur `main` (ou une pull request vers elle) ne déclenche que
+  `.github/workflows/verification.yml` : `npm run build`, donc `tsc --noEmit` puis Vite.
+  C'est le témoin vert, il ne publie rien.
+- **La règle du build local tient toujours** : lancer `npm run build` avant de pousser. À
+  savoir quand même, ça change la façon de travailler : les journaux d'Actions sont
+  lisibles depuis ici (outils GitHub `actions_list`, `get_job_logs`), donc un échec de CI
+  se diagnostique sans avoir à demander une capture d'écran.
+- **Le site est public** (`sportsderue.fr`), sans mot de passe : `curl` et
+  `npm run verifie-deploiement -- https://sportsderue.fr` fonctionnent depuis le conteneur
+  (avec `NODE_USE_ENV_PROXY=1` pour le second). C'est la seule vérification en ligne
+  possible de mon côté, et elle est réelle.
+- **Piège o2switch à connaître** : l'accès SSH est filtré par liste blanche d'adresses IP
+  (outil « Autorisation SSH » de cPanel), et les runners GitHub changent d'IP à chaque
+  exécution. Le filtre doit avoir été levé par le support pour le compte, sinon le
+  déploiement échoue en délai d'attente sans autre explication. Si le support refuse, la
+  solution de repli est le même workflow en FTPS (`lftp mirror --delete`), que la liste
+  blanche ne concerne pas.
+- Un déploiement automatique sur GitHub Pages a existé
+  (`.github/workflows/deploy-pages.yml`) : il ne publiait jamais — `configure-pages`
+  échouait (`Resource not accessible by integration`, créer le site Pages est un droit
   d'administrateur qu'un jeton de workflow n'a pas) et Pages sur un dépôt privé exige un
-  compte GitHub Pro. Supprimé en août 2026 ; ne pas le remettre sans demande explicite.
+  compte GitHub Pro. Supprimé en août 2026 ; ne pas le remettre.
 
 ## La mise à jour doit rester automatique
 
@@ -72,10 +83,10 @@ Deux garde-fous dans `src/lib/appUpdate.ts`, à conserver : ne pas recharger si 
 service worker ne pilotait la page (première visite : la prise de contrôle n'apporte rien à
 montrer, ce serait un clignotement gratuit), et un drapeau contre un second rechargement.
 
-Côté serveur, `netlify.toml` : les fichiers à empreinte (`/assets/*`, `/workbox-*.js`) sont
-immuables, et les trois qui gardent leur nom d'une version à l'autre — `sw.js`,
-`index.html`, `manifest.webmanifest` — sont **toujours revalidés**. Un `max-age` sur l'un
-d'eux et la mise à jour ne part plus.
+Côté serveur, `deploy/o2switch/.htaccess` : les fichiers à empreinte (`/assets/*`,
+`/workbox-*.js`) sont immuables, et les trois qui gardent leur nom d'une version à l'autre
+— `sw.js`, `index.html`, `manifest.webmanifest` — sont **toujours revalidés**. Un
+`max-age` sur l'un d'eux et la mise à jour ne part plus.
 
 Vérifiable de bout en bout sans raccourcir les constantes livrées : servir un `dist`
 depuis un répertoire, ouvrir la page, reconstruire par-dessus avec un `<title>` différent,
@@ -657,16 +668,23 @@ Les épingles, enfin, sont mises en cache (`pinCache`) : `setStyle()` vide les i
 carte, et les dix-huit gouttes étaient redessinées au canvas au passage du style provisoire
 au style thématisé — au pire moment.
 
-## Le jour où ça quittera Netlify
+## L'hébergement, et ce que personne ne fait à notre place
 
-C'est prévu (« un service perso »), et le danger n'est pas la migration elle-même — un
-site statique se recopie — mais **ce que Netlify fait sans qu'on le lui demande** et qui
-disparaîtrait sans bruit :
+Le site est parti sur un mutualisé **o2switch** (cPanel, Apache/LiteSpeed) en août 2026,
+sur `sportsderue.fr`. La migration elle-même était sans difficulté — un site statique se
+recopie. Le danger était ailleurs : **ce qu'un hébergeur fait ou ne fait pas sans qu'on le
+lui demande**, et qui ne se signale jamais quand ça manque.
 
-- **la compression** (`content-encoding: br` sur tout) : un nginx nu ne compresse rien, et
-  les 936 ko de MapLibre partiraient bruts au lieu de ~243 ko ;
-- **HSTS**, qu'il pose de lui-même (`max-age=31536000; includeSubDomains; preload`) ;
-- **HTTPS et son certificat**.
+Ce que o2switch fournit seul, et qu'il ne faut donc pas redéclarer : **HTTPS et son
+certificat** (AutoSSL) et **la compression** (LiteSpeed). Attention, ce n'est pas une
+garantie contractuelle : les 936 ko de MapLibre partiraient bruts au lieu de ~243 ko sans
+que personne ne le remarque depuis une fibre, d'où le `mod_deflate` déclaré quand même et
+le contrôle dans l'arbitre.
+
+Ce qu'il ne fournit pas et qu'il a fallu écrire : **la redirection vers HTTPS**, **HSTS**
+— et il compte plus qu'avant, `.fr` n'étant pas un domaine de premier niveau préchargé —
+**le domaine canonique** (`www.` répond d'office, cPanel le crée avec le domaine), les
+en-têtes de sécurité, les types MIME, le repli page unique et les règles de cache.
 
 Et surtout, la règle dont tout dépend : `sw.js`, `index.html` et `manifest.webmanifest`
 **toujours revalidés**. Un `max-age` sur l'un des trois et l'application installée reste
@@ -675,24 +693,23 @@ obligeait à vider le cache à la main. Rien ne le signale, l'application marche
 
 Quatre choses sont donc en place, à tenir à jour ensemble :
 
-- `deploy/Caddyfile` — le chemin le plus court : Caddy gère certificat, compression et
-  types MIME tout seul, et n'a pas le piège d'héritage de nginx.
+- `deploy/o2switch/.htaccess` — **le fichier de référence, celui qui est réellement
+  servi**. Deux différences de mécanique à connaître par rapport à nginx : Apache
+  **cumule** les en-têtes des portées imbriquées au lieu de les remplacer (donc pas de
+  fichier à réinclure), et `<FilesMatch>` ne sait pas viser un répertoire — `/assets/`
+  passe par un `SetEnvIf` sur l'URL demandée.
+- `deploy/Caddyfile` — variante pour un serveur qu'on administre : Caddy gère certificat,
+  compression et types MIME tout seul, et n'a pas le piège d'héritage de nginx.
 - `deploy/nginx/` — deux fichiers, et ce n'est pas de la coquetterie : **dès qu'un bloc
   `location` déclare un `add_header`, il perd tous ceux hérités du parent**. Comme chaque
   `location` pose son propre `Cache-Control`, les en-têtes de sécurité s'évaporeraient de
   tout ce qui n'est pas l'accueil. D'où le fichier inclus dans *chaque* `location`.
-- `deploy/o2switch/.htaccess` — pour un mutualisé cPanel (o2switch, et la plupart des
-  hébergeurs français à cette formule) : aucun accès à la configuration du serveur, tout
-  passe par `.htaccess`. Deux différences à connaître par rapport à nginx : Apache
-  **cumule** les en-têtes des portées imbriquées au lieu de les remplacer (donc pas de
-  fichier à réinclure), et `<FilesMatch>` ne sait pas viser un répertoire — `/assets/`
-  passe par un `SetEnvIf` sur l'URL demandée. L'hébergeur fournit le certificat (AutoSSL)
-  et la compression (LiteSpeed) ; il ne fournit ni la redirection HTTPS ni HSTS.
 - `scripts/verifie-deploiement.mjs` — **l'arbitre**. Il ne connaît pas l'hébergeur,
   seulement le contrat, et se lance contre n'importe quelle URL :
-  `npm run verifie-deploiement -- https://mon-site.fr`. C'est lui qui empêche les trois
+  `npm run verifie-deploiement -- https://sportsderue.fr`. C'est lui qui empêche les trois
   configurations de diverger : plutôt que de les comparer entre elles, on vérifie ce que
-  le site sert réellement.
+  le site sert réellement. Le workflow de déploiement le lance tout seul à la fin de
+  chaque mise en ligne, donc une régression de configuration fait échouer la CI.
 
 Ni nginx, ni Caddy, ni Apache n'ont pu être exécutés dans le conteneur (pas de démon
 Docker) : les configurations sont écrites, pas éprouvées. Le *contrat*, lui, l'est — un serveur local
@@ -701,10 +718,10 @@ tourne sans erreur. La première mise en ligne doit donc commencer par le script
 
 ## Les en-têtes de sécurité et la CSP
 
-Tout tient dans le bloc `[[headers]]` `for = "/*"` de `netlify.toml`, posé en août 2026 :
+Tout tient dans le bloc `mod_headers` de `deploy/o2switch/.htaccess`, posé en août 2026 :
 politique de sécurité du contenu (CSP), `X-Frame-Options`, `X-Content-Type-Options`,
-`Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`. HSTS n'y est pas :
-Netlify le pose déjà lui-même (`max-age=31536000; includeSubDomains; preload`).
+`Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, et HSTS — personne
+ne le pose à notre place.
 
 Deux points qui méritent d'être compris avant d'y toucher :
 
@@ -721,16 +738,14 @@ Deux points qui méritent d'être compris avant d'y toucher :
   injectée ne vaut pas un script) ; `worker-src` accepte `blob:` au cas où MapLibre
   basculerait sur un worker en blob.
 
-La CSP a d'abord vécu en `<meta>` dans `index.html`, le temps que le site soit protégé par
-mot de passe : un en-tête se serait appliqué à la page d'authentification de Netlify,
-invisible d'ici et donc intestable. **Le site est public depuis août 2026**
-(`sportsderue.netlify.app`), la CSP est revenue en en-tête, où elle vaut avant l'analyse du
-document, sur toutes les réponses et pas seulement sur le HTML — et où `frame-ancestors`
-fonctionne, ce qui n'est pas le cas en `<meta>`. Si le mot de passe revenait un jour, il
-faudrait vérifier que la page d'authentification survit à `script-src 'self'`.
+La CSP a d'abord vécu en `<meta>` dans `index.html`, faute de pouvoir tester un en-tête à
+l'époque. **Elle est en en-tête depuis août 2026**, et doit y rester : elle vaut alors
+avant l'analyse du document, sur toutes les réponses et pas seulement sur le HTML, et
+`frame-ancestors` y fonctionne — ce qui n'est pas le cas en `<meta>`, où il est ignoré.
 
-Vérifié au navigateur sur le build de production, en servant `dist` derrière un serveur qui
-**relit les en-têtes dans `netlify.toml`** (le test porte donc sur ce qui est livré) :
+Vérifié au navigateur sur le build de production, en servant `dist` derrière un serveur
+local qui applique les **mêmes en-têtes que la configuration livrée** (le test porte donc
+sur ce qui est servi) :
 parcours complet, plus les deux chemins qu'il ne touche pas et que la CSP pouvait couper —
 le chargement des aires de jeux (catégorie « Jeux ») et l'ouverture par lien partagé
 (`?e=…`). Zéro violation, zéro erreur de console. La mise en cadre depuis une autre

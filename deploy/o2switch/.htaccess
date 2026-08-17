@@ -1,13 +1,15 @@
-# Sports de rue — o2switch (cPanel, Apache/LiteSpeed), équivalent de `netlify.toml`.
+# Sports de rue — configuration de production (o2switch : cPanel, Apache/LiteSpeed).
 #
-# Pourquoi un troisième fichier alors que `deploy/Caddyfile` et `deploy/nginx/` existent :
-# o2switch est un hébergement mutualisé. Aucun accès au fichier de configuration du
-# serveur, tout passe par `.htaccess`. La mécanique change, le contrat non.
+# **C'est le fichier de référence du contrat de service.** Le site est hébergé sur un
+# mutualisé o2switch, où il n'y a aucun accès à la configuration du serveur : tout passe
+# par `.htaccess`. `deploy/Caddyfile` et `deploy/nginx/` restent dans le dépôt comme
+# variantes pour un autre serveur, mais c'est ici que se joue ce qui est réellement servi
+# — les trois doivent dire la même chose.
 #
-# Où le poser : à la **racine du dossier public** du domaine (`public_html/` par défaut),
-# à côté du contenu de `dist/`. Il n'est volontairement pas livré dans `dist/` — les
-# configurations de serveur vivent dans `deploy/`, jamais dans le build, sinon le service
-# worker les précacherait.
+# Où le poser : à la **racine publique** du domaine (`public_html/` par défaut), à côté du
+# contenu de `dist/`. Le workflow `.github/workflows/deploiement.yml` s'en charge à chaque
+# étiquette de version, en le copiant dans `dist/` **après** le build — sinon le service
+# worker le précacherait.
 #
 # Bonne nouvelle face à nginx : Apache **cumule** les en-têtes des portées imbriquées au
 # lieu de les remplacer. Les en-têtes de sécurité déclarés une fois ici s'appliquent donc
@@ -18,9 +20,10 @@
 # compression (LiteSpeed compresse seul). Ce qu'il ne fournit pas : la redirection vers
 # HTTPS, HSTS, et tout ce qui suit.
 #
-# Non éprouvé : aucun Apache n'a pu être exécuté dans l'environnement de développement.
-# C'est l'arbitre qui tranche, après la mise en ligne :
-#   npm run verifie-deploiement -- https://sportsderue.app
+# Non éprouvé localement : aucun Apache n'a pu être exécuté dans l'environnement de
+# développement. C'est l'arbitre qui tranche, contre le site réellement servi — et le
+# workflow de déploiement le lance tout seul à la fin de chaque mise en ligne :
+#   npm run verifie-deploiement -- https://sportsderue.fr
 
 Options -Indexes -MultiViews
 DirectoryIndex index.html
@@ -35,14 +38,13 @@ DirectoryIndex index.html
   RewriteCond %{HTTP:X-Forwarded-Proto} !=https
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 
-  # `sportsderue.app` et `sportderue.app` ne doivent pas servir deux copies vivantes :
-  # deux origines valent deux service workers, deux installations et deux caches. Et comme
-  # aucun hôte n'est écrit en dur dans le code, `share()` fabrique ses liens sur l'origine
-  # courante — sans redirection permanente, quelqu'un arrivé sur l'alias diffuserait des
-  # liens sur le mauvais domaine, indéfiniment.
-  # À décommenter quand les deux domaines sont réellement rattachés au compte.
-  # RewriteCond %{HTTP_HOST} !^sportsderue\.app$ [NC]
-  # RewriteRule ^ https://sportsderue.app%{REQUEST_URI} [R=301,L]
+  # Un seul domaine canonique. cPanel crée `www.` en même temps que le domaine, donc deux
+  # origines répondent d'office — et deux origines valent deux service workers, deux
+  # installations et deux caches. Comme aucun hôte n'est écrit en dur dans le code,
+  # `share()` fabrique ses liens sur l'origine courante : sans cette redirection, une
+  # arrivée par `www.` ferait circuler des liens sur le mauvais domaine, indéfiniment.
+  RewriteCond %{HTTP_HOST} ^www\.sportsderue\.fr$ [NC]
+  RewriteRule ^ https://sportsderue.fr%{REQUEST_URI} [R=301,L]
 
   # Repli page unique. L'état de la vue vit dans l'URL (`lat`, `lng`, `z`, `s`, `f`, `e`) :
   # un lien partagé doit rendre l'accueil, pas un 404. Les deux conditions laissent passer
@@ -62,9 +64,9 @@ DirectoryIndex index.html
 </IfModule>
 
 # --- 3. Compression ------------------------------------------------------------------
-# Netlify compressait tout de lui-même (`br`) : c'est le premier service qu'on perd en
-# partant. LiteSpeed compresse aussi seul, mais rien ne le garantit dans le temps, et les
-# 936 ko de MapLibre partiraient bruts au lieu de ~243 ko sans que rien ne le signale.
+# LiteSpeed compresse seul, mais rien ne le garantit dans le temps, et c'est typiquement
+# ce qui casse sans se voir : les 936 ko de MapLibre partiraient bruts au lieu de ~243 ko
+# sans que personne ne le remarque depuis une fibre.
 # Ni les `.woff2` ni les images : déjà compressés, les repasser ne brûle que du processeur.
 <IfModule mod_deflate.c>
   AddOutputFilterByType DEFLATE text/html text/css text/plain text/javascript
@@ -105,7 +107,7 @@ DirectoryIndex index.html
   Header always set Cache-Control "public, max-age=0, must-revalidate" env=RACINE
 </IfModule>
 
-# --- 5. En-têtes de sécurité, identiques à `netlify.toml` -----------------------------
+# --- 5. En-têtes de sécurité -----------------------------------------------------------
 # `always` les pose y compris sur les réponses d'erreur (404, 5xx).
 <IfModule mod_headers.c>
   Header always set Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://data.geopf.fr https://equipements.sports.gouv.fr"
@@ -119,9 +121,11 @@ DirectoryIndex index.html
   Header always set Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=(), accelerometer=(), gyroscope=(), magnetometer=(), interest-cohort=()"
   Header always set Cross-Origin-Opener-Policy "same-origin"
 
-  # Netlify posait HSTS de lui-même : hors de chez lui, il faut le déclarer. `preload`
-  # n'est à ajouter que si le domaine est réellement soumis à la liste de préchargement —
-  # c'est très difficile à défaire, donc absent par défaut.
+  # HSTS n'est fourni par personne ici, il faut le déclarer — et il compte d'autant plus
+  # que `.fr` n'est pas un domaine de premier niveau préchargé (contrairement à `.app`, où
+  # le navigateur force HTTPS de lui-même). Sans cet en-tête, la toute première visite
+  # peut partir en clair. `preload` n'est à ajouter qu'en soumettant réellement le domaine
+  # à la liste de préchargement : c'est très difficile à défaire, donc absent par défaut.
   Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
 
   # Rien à gagner à annoncer la version du serveur.

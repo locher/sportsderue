@@ -129,30 +129,45 @@ npm run icons      # régénère les icônes PWA (script Python, sans dépendanc
 ```
 
 Node 22+ recommandé. Le build produit un site statique : `dist/` se déploie tel quel sur
-Netlify, Vercel, GitHub Pages, un simple Nginx… Une seule contrainte : **servir en HTTPS**,
-sans quoi la géolocalisation et le service worker sont désactivés par les navigateurs.
+n'importe quel hébergeur. Une seule contrainte : **servir en HTTPS**, sans quoi la
+géolocalisation et le service worker sont désactivés par les navigateurs.
 
 ### Déploiement
 
-- **Netlify / Vercel** — importer le dépôt, rien à configurer (`netlify.toml` fixe la
-  commande, le dossier publié, les en-têtes de cache et de sécurité). Site servi à la
-  racine.
-- **Serveur personnel** — configurations prêtes dans `deploy/` : `deploy/Caddyfile`
-  (le plus court, Caddy gère seul le certificat, la compression et les types MIME) et
-  `deploy/nginx/` (deux fichiers, voir le piège d'héritage des en-têtes signalé dedans).
-- **Mutualisé cPanel (o2switch…)** — `deploy/o2switch/.htaccess`, à déposer à la racine du
-  dossier public à côté du contenu de `dist/`. Il couvre le repli page unique, les règles
-  de cache, la redirection HTTPS, HSTS et les en-têtes de sécurité.
-- **Autre hébergeur, dans un sous-chemin** — passer `BASE_PATH=/mon-chemin/` au build :
-  les URL d'assets, le `start_url`/`scope` du manifeste et le repli du service worker
-  suivent automatiquement.
+Le site tourne sur un mutualisé **o2switch** (cPanel, Apache/LiteSpeed), servi à la racine
+de `sportsderue.fr`. La mise en ligne est déclenchée par une **étiquette de version** :
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+`.github/workflows/deploiement.yml` construit le site, y joint
+`deploy/o2switch/.htaccess`, l'envoie en `rsync` par SSH dans la racine publique, puis
+lance l'arbitre décrit plus bas contre le site réellement servi. Un push sur `main` ne
+déploie rien : il ne déclenche que `verification.yml`, qui vérifie que le build passe.
+
+Les secrets attendus (`Settings → Secrets and variables → Actions`) sont listés en tête du
+workflow. **Point de vigilance propre à o2switch** : l'accès SSH est filtré par liste
+blanche d'adresses IP, et les runners GitHub en changent à chaque exécution — il faut
+demander au support de lever ce filtre pour le compte, sinon la connexion échoue en délai
+d'attente.
+
+Autres cibles, tenues à jour avec la précédente :
+
+- **Serveur qu'on administre** — `deploy/Caddyfile` (le plus court, Caddy gère seul le
+  certificat, la compression et les types MIME) ou `deploy/nginx/` (deux fichiers, voir le
+  piège d'héritage des en-têtes signalé dedans).
+- **Sous-chemin plutôt que racine** — passer `BASE_PATH=/mon-chemin/` au build : les URL
+  d'assets, le `start_url`/`scope` du manifeste et le repli du service worker suivent
+  automatiquement.
 
 ### Contrat de service
 
 `dist/` est un site statique, mais **six règles doivent être tenues par l'hébergeur**, et
-la plupart ne se voient pas quand elles sont fausses. Netlify en assure trois sans qu'on
-demande rien (HTTPS, compression, HSTS) : c'est exactement ce qui rend une migration
-risquée.
+la plupart ne se voient pas quand elles sont fausses. Un mutualisé en assure deux sans
+qu'on demande rien (le certificat, la compression) et laisse tout le reste au
+`.htaccess` : c'est exactement ce qui rend un changement d'hébergeur risqué.
 
 | Règle | Pourquoi | Ce qui arrive si on l'oublie |
 |---|---|---|
@@ -226,7 +241,7 @@ Détails d'implémentation utiles à connaître :
   casse : `setWorkerUrl()` reçoit le worker construit par Vite (`?worker&url`), et
   `optimizeDeps.exclude` évite le pré-bundling en développement.
 - **Mise à jour automatique.** Les noms de fichiers portent une empreinte du contenu, donc
-  tout se joue sur `index.html` et `sw.js`, qui gardent le même nom : `netlify.toml` les
+  tout se joue sur `index.html` et `sw.js`, qui gardent le même nom : le `.htaccess` les
   fait revalider à chaque requête, et `src/lib/appUpdate.ts` redemande `sw.js` à chaque
   retour au premier plan (au plus une fois par minute) puis recharge la page dès que le
   nouveau service worker prend la main. Le rechargement ne perd rien, l'état de la vue

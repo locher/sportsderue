@@ -10,11 +10,12 @@
  * 936 ko de MapLibre partent bruts au lieu de 243 ko : personne ne le remarque depuis
  * une fibre. Ces deux-là ne se rattrapent pas à la lecture du code.
  *
- * Netlify en fournit une partie sans qu'on demande rien (compression, HSTS) : c'est
- * précisément ce qui rend une migration vers un serveur personnel risquée. Ce script est
- * l'arbitre commun — il ne connaît pas l'hébergeur, seulement le contrat.
+ * Un hébergement mutualisé en fournit une partie sans qu'on demande rien (le certificat,
+ * la compression) et pas le reste : c'est précisément ce qui rend la configuration
+ * serveur risquée. Ce script est l'arbitre — il ne connaît pas l'hébergeur, seulement le
+ * contrat, et le workflow de déploiement le lance à la fin de chaque mise en ligne.
  *
- *   npm run verifie-deploiement -- https://sportsderue.netlify.app
+ *   npm run verifie-deploiement -- https://sportsderue.fr
  *
  * Sortie non nulle si une règle **obligatoire** n'est pas tenue.
  */
@@ -105,7 +106,7 @@ if (!script) {
   const cc = res.headers.get('cache-control')
   dit(immuable(cc) ? 'ok' : 'ko', `${chemin} gardé longtemps`, cc ?? 'aucun Cache-Control')
 
-  // --- 4. Compression : Netlify la fait seul, un serveur nu non ----------------------
+  // --- 4. Compression : LiteSpeed la fait seul, un serveur nu non --------------------
   const encodage = res.headers.get('content-encoding')
   const taille = res.headers.get('content-length')
   if (encodage) {

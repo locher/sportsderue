@@ -1,0 +1,139 @@
+# Mise en ligne sur o2switch, déclenchée par une étiquette de version.
+#
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# Pourquoi une étiquette et pas un push sur `main` : la mise en ligne est le seul geste
+# irréversible du projet (une application installée qui reçoit une version cassée n'a pas
+# de bouton « recharger »). Une étiquette est une décision explicite, un push non.
+#
+# Secrets à renseigner dans Settings → Secrets and variables → Actions :
+#
+#   O2SWITCH_HOTE          nom d'hôte SSH (le domaine hébergé fait l'affaire)
+#   O2SWITCH_UTILISATEUR   identifiant cPanel
+#   O2SWITCH_CLE_SSH       clé privée dédiée au déploiement, en entier
+#   O2SWITCH_HOTES_CONNUS  sortie de `ssh-keyscan <hôte>`, pour ne pas faire confiance
+#                          aveuglément au premier serveur qui répond
+#   O2SWITCH_RACINE        chemin absolu de la racine publique (ex. /home/xxx/public_html)
+#
+# À savoir avant le premier essai : o2switch filtre SSH par liste blanche d'adresses IP,
+# et les runners GitHub en changent à chaque exécution. Il faut donc demander au support
+# o2switch de lever ce filtre pour le compte, sinon la connexion échoue en délai
+# d'attente. Voir le README.
+
+name: Déploiement
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Permet de rejouer une mise en ligne sans créer d'étiquette.
+  workflow_dispatch:
+
+# Deux mises en ligne simultanées écriraient dans la même racine publique.
+concurrency:
+  group: deploiement-o2switch
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deployer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Vérifier que les secrets sont renseignés
+        env:
+          HOTE: ${{ secrets.O2SWITCH_HOTE }}
+          UTILISATEUR: ${{ secrets.O2SWITCH_UTILISATEUR }}
+          CLE: ${{ secrets.O2SWITCH_CLE_SSH }}
+          HOTES_CONNUS: ${{ secrets.O2SWITCH_HOTES_CONNUS }}
+          RACINE: ${{ secrets.O2SWITCH_RACINE }}
+        run: |
+          manquants=''
+          for nom in HOTE UTILISATEUR CLE HOTES_CONNUS RACINE; do
+            [ -n "${!nom}" ] || manquants="$manquants O2SWITCH_$nom"
+          done
+          if [ -n "$manquants" ]; then
+            echo "::error::Secrets manquants :$manquants"
+            exit 1
+          fi
+          case "$RACINE" in
+            /*) ;;
+            *) echo "::error::O2SWITCH_RACINE doit être un chemin absolu, reçu « $RACINE »"; exit 1 ;;
+          esac
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # Le `.htaccess` porte tout ce que l'hébergeur ne fait pas seul : règles de cache,
+      # repli page unique, en-têtes de sécurité. Il est copié après le build, donc jamais
+      # précaché par le service worker.
+      - name: Joindre le .htaccess au site construit
+        run: cp deploy/o2switch/.htaccess dist/.htaccess
+
+      - name: Préparer la connexion SSH
+        env:
+          HOTE: ${{ secrets.O2SWITCH_HOTE }}
+          UTILISATEUR: ${{ secrets.O2SWITCH_UTILISATEUR }}
+          CLE: ${{ secrets.O2SWITCH_CLE_SSH }}
+          HOTES_CONNUS: ${{ secrets.O2SWITCH_HOTES_CONNUS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$CLE" > ~/.ssh/id_deploiement
+          chmod 600 ~/.ssh/id_deploiement
+          printf '%s\n' "$HOTES_CONNUS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          # Passer par un alias évite de citer des options ssh dans la commande rsync.
+          cat > ~/.ssh/config <<CONF
+          Host o2switch
+            HostName $HOTE
+            User $UTILISATEUR
+            Port 22
+            IdentityFile ~/.ssh/id_deploiement
+            IdentitiesOnly yes
+            BatchMode yes
+            ConnectTimeout 20
+            ServerAliveInterval 15
+          CONF
+          chmod 600 ~/.ssh/config
+
+      - name: Envoyer le site
+        env:
+          RACINE: ${{ secrets.O2SWITCH_RACINE }}
+        run: |
+          set -euo pipefail
+          ssh o2switch "test -d '$RACINE'" \
+            || { echo "::error::La racine publique $RACINE n'existe pas sur le serveur"; exit 1; }
+
+          # Premier passage, additif : les fichiers à empreinte doivent tous être en place
+          # **avant** que `index.html` et `sw.js` ne les désignent. Sans cette précaution,
+          # quelqu'un qui charge la page pendant le transfert reçoit un index qui pointe
+          # vers des fichiers absents.
+          rsync -rlptz --chmod=D755,F644 \
+            --exclude '/index.html' --exclude '/sw.js' --exclude '/manifest.webmanifest' \
+            dist/ "o2switch:$RACINE/"
+
+          # Second passage : les trois fichiers à nom stable — ce sont eux qui annoncent la
+          # nouvelle version — puis le ménage des fichiers de la version précédente.
+          #
+          # Les deux exclusions ne sont pas décoratives : `.well-known` sert à la
+          # validation du certificat (AutoSSL) et `cgi-bin` est créé par cPanel. Les
+          # supprimer casserait le renouvellement du certificat, en silence et des
+          # semaines plus tard.
+          rsync -rlptz --delete --chmod=D755,F644 \
+            --exclude '/.well-known/' --exclude '/cgi-bin/' \
+            dist/ "o2switch:$RACINE/"
+
+      # L'arbitre du dépôt, lancé contre le site réellement servi. Presque rien de ce qui
+      # suit ne se voit à l'œil : un `max-age` de trop sur `sw.js` et les mises à jour ne
+      # partent plus, sans que l'application cesse de fonctionner.
+      - name: Vérifier le contrat de service
+        run: npm run verifie-deploiement -- https://sportsderue.fr
