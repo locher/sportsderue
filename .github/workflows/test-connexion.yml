@@ -76,11 +76,22 @@ jobs:
           printf '%s\n' "$CLE" > ~/.ssh/id_test && chmod 600 ~/.ssh/id_test
           printf '%s\n' "$HOTES_CONNUS" > ~/.ssh/known_hosts
 
-          # `ConnectTimeout` court : ici on veut un verdict, pas une réussite arrachée.
-          if ssh -i ~/.ssh/id_test -o IdentitiesOnly=yes -o BatchMode=yes \
-                 -o ConnectTimeout=15 -p 22 "$UTILISATEUR@$HOTE" \
-                 "echo CONNECTE; pwd; ls -d '$RACINE' 2>/dev/null || echo 'racine introuvable : $RACINE'" \
-                 2>/tmp/ssh.log; then
+          # `ConnectTimeout` court : ici on veut un verdict, pas une réussite arrachée. Deux
+          # tentatives quand même si le pare-feu vient d'être ouvert, le temps que
+          # l'exception se propage — sinon le test annoncerait un faux négatif.
+          essais=1
+          [ "$PAREFEU" = true ] && essais=3
+          ok=''
+          for essai in $(seq 1 $essais); do
+            if ssh -i ~/.ssh/id_test -o IdentitiesOnly=yes -o BatchMode=yes \
+                   -o ConnectTimeout=15 -p 22 "$UTILISATEUR@$HOTE" \
+                   "echo CONNECTE; pwd; ls -d '$RACINE' 2>/dev/null || echo 'racine introuvable : $RACINE'" \
+                   2>/tmp/ssh.log; then
+              ok=1; break
+            fi
+            [ "$essai" = "$essais" ] || { echo "Tentative $essai sans réponse, nouvel essai dans 5 s…"; sleep 5; }
+          done
+          if [ -n "$ok" ]; then
             echo "### SSH — ✅ la connexion passe" >> "$GITHUB_STEP_SUMMARY"
             if [ "$PAREFEU" = true ]; then
               echo "Le déploiement par \`rsync\` fonctionnera : garder le transport \`ssh\`." >> "$GITHUB_STEP_SUMMARY"

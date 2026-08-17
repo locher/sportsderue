@@ -204,7 +204,15 @@ jobs:
           RACINE: ${{ secrets.O2SWITCH_RACINE }}
         run: |
           set -euo pipefail
-          if ! ssh o2switch true 2>/tmp/ssh.log; then
+          # Trois tentatives espacées : la documentation d'o2switch dit que l'outil rend la
+          # main quand l'exception est effective, mais elle mentionne aussi « quelques
+          # secondes ». Un déploiement entier ne doit pas échouer sur cette marge.
+          connecte=''
+          for essai in 1 2 3; do
+            if ssh o2switch true 2>/tmp/ssh.log; then connecte=1; break; fi
+            [ "$essai" = 3 ] || { echo "Tentative $essai sans réponse, nouvel essai dans 5 s…"; sleep 5; }
+          done
+          if [ -z "$connecte" ]; then
             echo "::error::Connexion SSH impossible. Si c'est un délai d'attente, le pare-feu bloque l'IP du runner : renseigner le secret O2SWITCH_CPANEL_TOKEN pour que le workflow l'autorise de lui-même, ou basculer la variable DEPLOIEMENT_TRANSPORT sur « ftps »."
             cat /tmp/ssh.log
             exit 1
