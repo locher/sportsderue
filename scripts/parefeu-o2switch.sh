@@ -35,12 +35,30 @@ PORT=22
 : "${O2SWITCH_CPANEL_TOKEN:?jeton d’API cPanel manquant}"
 
 # `--fail-with-body` fait ressortir un code HTTP d'erreur sans jeter la réponse, qui porte
-# l'explication. Pas de `-k` : le certificat du port 2083 est valide pour le nom d'hôte du
-# serveur, donc une erreur de vérification est une vraie information, pas une gêne.
+# l'explication.
+#
+# Pas de `-k`, jamais : ce qui transite ici est le jeton d'API du compte. Une erreur de
+# vérification du certificat est donc une information, pas une gêne — et elle a une cause
+# précise et fréquente, d'où le message dédié. Le nom qui marche pour SSH ne vaut pas
+# forcément pour le port 2083 : SSH ne regarde aucun certificat, cPanel si.
 uapi() {
-  curl -sS --max-time 45 --fail-with-body \
+  local sortie code=0
+  sortie=$(curl -sS --max-time 45 --fail-with-body \
     -H "Authorization: cpanel ${O2SWITCH_CPANEL_LOGIN}:${O2SWITCH_CPANEL_TOKEN}" \
-    "https://${O2SWITCH_CPANEL_SERVEUR}:2083/execute/SshWhitelist/$1"
+    "https://${O2SWITCH_CPANEL_SERVEUR}:2083/execute/SshWhitelist/$1") || code=$?
+
+  if [ "$code" = 60 ]; then
+    {
+      echo "Le certificat de ${O2SWITCH_CPANEL_SERVEUR}:2083 ne couvre pas ce nom."
+      echo "Renseigner le secret O2SWITCH_CPANEL_SERVEUR avec le « Nom du serveur » lu dans"
+      echo "cPanel → Informations générales : c'est celui que porte le certificat. Le nom"
+      echo "utilisé pour SSH n'a pas à être le même."
+    } >&2
+    return 60
+  fi
+
+  printf '%s' "$sortie"
+  return "$code"
 }
 
 case "$action" in

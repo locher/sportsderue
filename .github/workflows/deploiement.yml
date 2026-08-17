@@ -37,17 +37,23 @@
 # ## Secrets (Settings → Secrets and variables → Actions)
 #
 # Transport SSH :
-#   O2SWITCH_HOTE          **nom d'hôte du serveur** (`xxx.o2switch.net`), et pas le
-#                          domaine : il sert aussi pour l'API cPanel sur le port 2083, dont
-#                          le certificat porte ce nom-là
+#   O2SWITCH_HOTE          nom d'hôte pour SSH. `identifiant.odns.fr` fait l'affaire, comme
+#                          le nom du serveur — SSH ne vérifie aucun certificat, seule la
+#                          résolution compte. Éviter une IP nue : elle peut changer, et une
+#                          entrée `known_hosts` est liée à la chaîne exacte utilisée ici.
 #   O2SWITCH_UTILISATEUR   identifiant cPanel
 #   O2SWITCH_CLE_SSH       clé privée dédiée au déploiement, en entier
-#   O2SWITCH_HOTES_CONNUS  sortie de `ssh-keyscan <hôte>`, pour ne pas faire confiance
-#                          aveuglément au premier serveur qui répond
+#   O2SWITCH_HOTES_CONNUS  sortie de `ssh-keyscan <la valeur ci-dessus>` — une entrée pour un
+#                          nom ne vaut pas pour l'IP correspondante, ni l'inverse
 #   O2SWITCH_RACINE        chemin absolu de la racine publique (/home/xxx/public_html)
 #   O2SWITCH_CPANEL_TOKEN  jeton d'API cPanel (facultatif mais conseillé) : il permet au
 #                          workflow d'ouvrir le pare-feu pour lui-même. Un jeton se révoque
 #                          seul, sans toucher au mot de passe du compte.
+#   O2SWITCH_CPANEL_SERVEUR  facultatif, et seulement si l'appel à l'API échoue sur le
+#                          certificat : le port 2083 est en HTTPS et vérifie le nom, là où
+#                          SSH s'en moque. Y mettre le « Nom du serveur » lu dans cPanel →
+#                          Informations générales. Sans ce secret, `O2SWITCH_HOTE` est
+#                          réutilisé.
 #
 # Transport FTPS :
 #   O2SWITCH_FTP_HOTE / _UTILISATEUR / _MOTDEPASSE, et
@@ -151,7 +157,10 @@ jobs:
       - name: Autoriser l'IP du runner sur le pare-feu
         if: env.TRANSPORT == 'ssh' && env.PAREFEU == 'true'
         env:
-          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_HOTE }}
+          # Le nom qui marche pour SSH ne vaut pas forcément pour le port 2083, dont le
+          # certificat porte le nom du serveur. D'où un secret séparé, facultatif : sans
+          # lui on réutilise l'hôte SSH, qui suffit dans le cas le plus courant.
+          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_CPANEL_SERVEUR || secrets.O2SWITCH_HOTE }}
           O2SWITCH_CPANEL_LOGIN: ${{ secrets.O2SWITCH_UTILISATEUR }}
           O2SWITCH_CPANEL_TOKEN: ${{ secrets.O2SWITCH_CPANEL_TOKEN }}
         run: |
@@ -278,7 +287,10 @@ jobs:
       - name: Retirer l'IP du runner du pare-feu
         if: always() && env.TRANSPORT == 'ssh' && env.PAREFEU == 'true' && env.RUNNER_IP != ''
         env:
-          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_HOTE }}
+          # Le nom qui marche pour SSH ne vaut pas forcément pour le port 2083, dont le
+          # certificat porte le nom du serveur. D'où un secret séparé, facultatif : sans
+          # lui on réutilise l'hôte SSH, qui suffit dans le cas le plus courant.
+          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_CPANEL_SERVEUR || secrets.O2SWITCH_HOTE }}
           O2SWITCH_CPANEL_LOGIN: ${{ secrets.O2SWITCH_UTILISATEUR }}
           O2SWITCH_CPANEL_TOKEN: ${{ secrets.O2SWITCH_CPANEL_TOKEN }}
         run: scripts/parefeu-o2switch.sh retire "$RUNNER_IP"

@@ -75,7 +75,11 @@ soit installable comme une application, et que ça reste gratuit à héberger.
   `remove`, sur le port 2083, qui n'est pas filtré) et un exemple de workflow GitHub
   Actions qui autorise l'IP du runner avant de déployer. `scripts/parefeu-o2switch.sh`
   l'enveloppe, et les deux workflows l'appellent quand le secret `O2SWITCH_CPANEL_TOKEN`
-  existe : porte ouverte juste avant, refermée en `always()` juste après. Trois détails à
+  existe : porte ouverte juste avant, refermée en `always()` juste après. Le nom d'hôte de
+  l'API est un secret **distinct** de celui de SSH (`O2SWITCH_CPANEL_SERVEUR`, avec repli
+  sur `O2SWITCH_HOTE`) : les deux usages n'ont pas les mêmes contraintes, le port 2083 est
+  en HTTPS et vérifie le nom là où SSH s'en moque — un `identifiant.odns.fr` qui marche pour
+  l'un peut échouer sur l'autre. Trois détails à
   ne pas défaire — l'authentification par **jeton d'API** et non par le mot de passe cPanel
   (un jeton se révoque seul) ; le retrait sur les **deux directions** `in` et `out`, sans
   quoi le compteur des 5 exceptions ne redescend pas ; et **jamais `remove_all`**, que

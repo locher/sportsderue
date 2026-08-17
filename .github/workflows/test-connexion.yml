@@ -45,7 +45,10 @@ jobs:
       - name: Ouvrir le pare-feu pour cette IP
         if: (inputs.transport == 'ssh' || inputs.transport == 'les-deux') && env.PAREFEU == 'true'
         env:
-          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_HOTE }}
+          # Le nom qui marche pour SSH ne vaut pas forcément pour le port 2083, dont le
+          # certificat porte le nom du serveur. D'où un secret séparé, facultatif : sans
+          # lui on réutilise l'hôte SSH, qui suffit dans le cas le plus courant.
+          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_CPANEL_SERVEUR || secrets.O2SWITCH_HOTE }}
           O2SWITCH_CPANEL_LOGIN: ${{ secrets.O2SWITCH_UTILISATEUR }}
           O2SWITCH_CPANEL_TOKEN: ${{ secrets.O2SWITCH_CPANEL_TOKEN }}
         run: |
@@ -105,7 +108,10 @@ jobs:
       - name: Refermer le pare-feu
         if: always() && env.PAREFEU == 'true' && env.RUNNER_IP != '' && env.RUNNER_IP != 'inconnue'
         env:
-          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_HOTE }}
+          # Le nom qui marche pour SSH ne vaut pas forcément pour le port 2083, dont le
+          # certificat porte le nom du serveur. D'où un secret séparé, facultatif : sans
+          # lui on réutilise l'hôte SSH, qui suffit dans le cas le plus courant.
+          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_CPANEL_SERVEUR || secrets.O2SWITCH_HOTE }}
           O2SWITCH_CPANEL_LOGIN: ${{ secrets.O2SWITCH_UTILISATEUR }}
           O2SWITCH_CPANEL_TOKEN: ${{ secrets.O2SWITCH_CPANEL_TOKEN }}
         run: scripts/parefeu-o2switch.sh retire "$RUNNER_IP"
