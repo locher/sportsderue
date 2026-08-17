@@ -45,10 +45,15 @@ soit installable comme une application, et que ça reste gratuit à héberger.
   savoir quand même, ça change la façon de travailler : les journaux d'Actions sont
   lisibles depuis ici (outils GitHub `actions_list`, `get_job_logs`), donc un échec de CI
   se diagnostique sans avoir à demander une capture d'écran.
-- **Le site est public** (`sportsderue.fr`), sans mot de passe : `curl` et
-  `npm run verifie-deploiement -- https://sportsderue.fr` fonctionnent depuis le conteneur
-  (avec `NODE_USE_ENV_PROXY=1` pour le second). C'est la seule vérification en ligne
-  possible de mon côté, et elle est réelle.
+- **Le site est public** (`sportsderue.fr`), sans mot de passe. C'est un vrai changement
+  pour moi : `curl` et `npm run verifie-deploiement -- https://sportsderue.fr` marchent
+  depuis le conteneur (avec `NODE_USE_ENV_PROXY=1` pour le second, qui passe par `fetch`),
+  donc je peux enfin contrôler ce qui est réellement servi. Non encore exercé contre ce
+  domaine : il a été délégué le 17 août 2026 et ne résolvait pas encore. Pour diagnostiquer
+  un domaine muet sans `dig` dans le conteneur, interroger le DNS en HTTPS
+  (`https://dns.google/resolve?name=…&type=NS`) et l'état de l'enregistrement en RDAP
+  (`https://rdap.nic.fr/domain/…`) : c'est ce qui distingue « pas encore propagé » de
+  « mal configuré ».
 - **Piège o2switch à connaître** : l'accès SSH est filtré par liste blanche d'adresses IP
   (outil « Autorisation SSH » de cPanel), et les runners GitHub changent d'IP à chaque
   exécution. Le filtre doit avoir été levé par le support pour le compte, sinon le
