@@ -2,15 +2,16 @@
 # se connecter à o2switch ?
 #
 # Elle se pose parce qu'o2switch filtre SSH par liste blanche d'adresses IP et que les
-# runners GitHub en changent à chaque exécution. Leur documentation dit que « les services
-# massivement utilisés, comme par exemple GitHub, Bitbucket […] devraient déjà être en liste
-# blanche » — ce workflow transforme ce « devraient » en fait établi.
+# runners GitHub en changent à chaque exécution. Deux façons de s'en sortir, et ce workflow
+# teste **celle qui servira réellement** :
+#
+# - jeton `O2SWITCH_CPANEL_TOKEN` renseigné → le workflow ouvre le pare-feu pour lui-même
+#   avant de se connecter et le referme après, comme le fera le déploiement ;
+# - jeton absent → connexion nue, ce qui vérifie l'affirmation de la documentation d'o2switch
+#   selon laquelle les plages GitHub « devraient déjà être en liste blanche ».
 #
 # À lancer **avant la première étiquette de version** : Actions → Test de connexion →
-# Run workflow. Tout est en lecture seule (`pwd`, `ls`), rien n'est écrit sur le serveur.
-#
-# Si SSH échoue en délai d'attente, c'est le pare-feu : basculer la variable
-# `DEPLOIEMENT_TRANSPORT` sur `ftps` et relancer ce test pour confirmer le repli.
+# Run workflow. Tout est en lecture seule côté serveur (`pwd`, `ls`), rien n'est écrit.
 
 name: Test de connexion
 
@@ -29,12 +30,27 @@ permissions:
 jobs:
   tester:
     runs-on: ubuntu-latest
+    env:
+      PAREFEU: ${{ secrets.O2SWITCH_CPANEL_TOKEN != '' }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Adresse publique du runner
+        id: ip
         run: |
           ip=$(curl -sS --max-time 15 https://api.ipify.org || echo inconnue)
-          echo "IP sortante du runner : $ip"
+          echo "RUNNER_IP=$ip" >> "$GITHUB_ENV"
           echo "IP sortante du runner : \`$ip\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Ouvrir le pare-feu pour cette IP
+        if: (inputs.transport == 'ssh' || inputs.transport == 'les-deux') && env.PAREFEU == 'true'
+        env:
+          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_HOTE }}
+          O2SWITCH_CPANEL_LOGIN: ${{ secrets.O2SWITCH_UTILISATEUR }}
+          O2SWITCH_CPANEL_TOKEN: ${{ secrets.O2SWITCH_CPANEL_TOKEN }}
+        run: |
+          echo "Mode testé : **pare-feu ouvert par le workflow** (jeton d'API présent)." >> "$GITHUB_STEP_SUMMARY"
+          scripts/parefeu-o2switch.sh autorise "$RUNNER_IP"
 
       - name: SSH
         if: inputs.transport == 'ssh' || inputs.transport == 'les-deux'
@@ -50,6 +66,9 @@ jobs:
             echo "### SSH — secrets absents, test ignoré" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+          if [ "$PAREFEU" != true ]; then
+            echo "Mode testé : **connexion nue**, sans ouvrir le pare-feu (pas de jeton d'API)." >> "$GITHUB_STEP_SUMMARY"
+          fi
           install -m 700 -d ~/.ssh
           printf '%s\n' "$CLE" > ~/.ssh/id_test && chmod 600 ~/.ssh/id_test
           printf '%s\n' "$HOTES_CONNUS" > ~/.ssh/known_hosts
@@ -60,12 +79,20 @@ jobs:
                  "echo CONNECTE; pwd; ls -d '$RACINE' 2>/dev/null || echo 'racine introuvable : $RACINE'" \
                  2>/tmp/ssh.log; then
             echo "### SSH — ✅ la connexion passe" >> "$GITHUB_STEP_SUMMARY"
-            echo "Le pare-feu d'o2switch laisse donc passer les runners GitHub : garder \`rsync\` par SSH." >> "$GITHUB_STEP_SUMMARY"
+            if [ "$PAREFEU" = true ]; then
+              echo "Le déploiement par \`rsync\` fonctionnera : garder le transport \`ssh\`." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "Et sans même ouvrir le pare-feu : les plages GitHub sont bien déjà en liste blanche chez o2switch." >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
             cat /tmp/ssh.log
             echo "### SSH — ❌ échec" >> "$GITHUB_STEP_SUMMARY"
             if grep -qiE 'timed out|timeout|Connection refused|No route to host' /tmp/ssh.log; then
-              echo "Délai d'attente ou refus : **c'est le pare-feu**, l'IP du runner n'est pas en liste blanche. Basculer \`DEPLOIEMENT_TRANSPORT\` sur \`ftps\`, ou demander au support d'ajouter les plages GitHub." >> "$GITHUB_STEP_SUMMARY"
+              if [ "$PAREFEU" = true ]; then
+                echo "Délai d'attente **alors que le pare-feu a été ouvert** : vérifier que \`O2SWITCH_HOTE\` est bien le nom d'hôte du serveur, et que l'ajout en liste blanche a réussi à l'étape précédente." >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "Délai d'attente : les plages GitHub ne sont **pas** en liste blanche. Renseigner \`O2SWITCH_CPANEL_TOKEN\` pour que le workflow ouvre le pare-feu lui-même, puis relancer ce test." >> "$GITHUB_STEP_SUMMARY"
+              fi
             elif grep -qiE 'Permission denied|publickey' /tmp/ssh.log; then
               echo "Le réseau passe mais la clé est refusée : la clé publique est-elle bien **autorisée** dans cPanel (le bouton « Autoriser », après l'import) ?" >> "$GITHUB_STEP_SUMMARY"
             elif grep -qiE 'Host key verification|known_hosts' /tmp/ssh.log; then
@@ -74,6 +101,14 @@ jobs:
             printf '```\n%s\n```\n' "$(cat /tmp/ssh.log)" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+
+      - name: Refermer le pare-feu
+        if: always() && env.PAREFEU == 'true' && env.RUNNER_IP != '' && env.RUNNER_IP != 'inconnue'
+        env:
+          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_HOTE }}
+          O2SWITCH_CPANEL_LOGIN: ${{ secrets.O2SWITCH_UTILISATEUR }}
+          O2SWITCH_CPANEL_TOKEN: ${{ secrets.O2SWITCH_CPANEL_TOKEN }}
+        run: scripts/parefeu-o2switch.sh retire "$RUNNER_IP"
 
       - name: FTPS
         if: inputs.transport == 'ftps' || inputs.transport == 'les-deux'

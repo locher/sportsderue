@@ -66,15 +66,27 @@ soit installable comme une application, et que ça reste gratuit à héberger.
   (`https://dns.google/resolve?name=…&type=NS`) et l'état de l'enregistrement en RDAP
   (`https://rdap.nic.fr/domain/…`) : c'est ce qui distingue « pas encore propagé » de
   « mal configuré ».
-- **Le point à connaître sur o2switch** : l'accès SSH est filtré par liste blanche
-  d'adresses IP (outil « Autorisation SSH » de cPanel), et les runners GitHub changent d'IP
-  à chaque exécution. Mais leur documentation ajoute que « les services massivement
-  utilisés, comme par exemple GitHub, Bitbucket […] devraient déjà être en liste blanche ».
-  Devraient. D'où `.github/workflows/test-connexion.yml`, à lancer **avant la première
-  étiquette** : il essaie la connexion en lecture seule (`pwd`, `ls`), écrit un verdict dans
-  le résumé du job et distingue les trois échecs qui ne se soignent pas pareil — délai
-  d'attente (pare-feu), `Permission denied` (clé importée mais pas *autorisée* dans cPanel,
-  le bouton se rate facilement), empreinte inconnue (`ssh-keyscan` à refaire).
+- **Le pare-feu SSH d'o2switch, et comment on ne parie pas dessus.** L'accès SSH est filtré
+  par liste blanche d'adresses IP (outil « Autorisation SSH » de cPanel, **5 exceptions
+  maximum**), et les runners GitHub changent d'IP à chaque exécution. Leur documentation dit
+  que « les services massivement utilisés, comme par exemple GitHub, Bitbucket […] devraient
+  déjà être en liste blanche » — devraient.
+  La même page documente la sortie : une **API cPanel `SshWhitelist`** (`list`, `add`,
+  `remove`, sur le port 2083, qui n'est pas filtré) et un exemple de workflow GitHub
+  Actions qui autorise l'IP du runner avant de déployer. `scripts/parefeu-o2switch.sh`
+  l'enveloppe, et les deux workflows l'appellent quand le secret `O2SWITCH_CPANEL_TOKEN`
+  existe : porte ouverte juste avant, refermée en `always()` juste après. Trois détails à
+  ne pas défaire — l'authentification par **jeton d'API** et non par le mot de passe cPanel
+  (un jeton se révoque seul) ; le retrait sur les **deux directions** `in` et `out`, sans
+  quoi le compteur des 5 exceptions ne redescend pas ; et **jamais `remove_all`**, que
+  l'exemple d'o2switch utilise pourtant — il supprimerait aussi la propre exception du
+  propriétaire.
+- `.github/workflows/test-connexion.yml` est à lancer **avant la première étiquette** : il
+  essaie la connexion en lecture seule (`pwd`, `ls`) dans le mode qui servira réellement,
+  écrit un verdict dans le résumé du job, et distingue les trois échecs qui ne se soignent
+  pas pareil — délai d'attente (pare-feu), `Permission denied` (clé importée mais pas
+  *autorisée* dans cPanel, le bouton se rate facilement), empreinte inconnue
+  (`ssh-keyscan` à refaire).
 - Trois choses que la documentation d'o2switch ne dit pas au même endroit et qui ferment des
   portes : **le SFTP n'est pas disponible sur les comptes FTP secondaires** (donc pas de
   transport cloisonné sur le port 22), **l'outil Git de cPanel exige lui aussi un accès SSH

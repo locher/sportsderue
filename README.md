@@ -149,10 +149,12 @@ déclenche que `verification.yml`, qui vérifie que le build passe.
 
 Deux transports sont possibles, choisis par la variable `DEPLOIEMENT_TRANSPORT` :
 
-- **`ssh` (défaut)** — `rsync` par SSH, authentifié par clé. Le meilleur outil, mais
-  o2switch filtre SSH par liste blanche d'adresses IP alors que les runners GitHub en
-  changent à chaque exécution. Leur documentation indique que les services massivement
-  utilisés comme GitHub « devraient déjà être en liste blanche ».
+- **`ssh` (défaut)** — `rsync` par SSH, authentifié par clé. o2switch filtre SSH par liste
+  blanche d'adresses IP alors que les runners GitHub en changent à chaque exécution : si le
+  secret `O2SWITCH_CPANEL_TOKEN` est renseigné, le workflow **ouvre le pare-feu pour
+  lui-même** avant de se connecter et le referme après, via l'API cPanel `SshWhitelist`
+  (`scripts/parefeu-o2switch.sh`). Sans ce jeton, la connexion repose sur l'affirmation
+  d'o2switch selon laquelle les plages GitHub « devraient déjà être en liste blanche ».
 - **`ftps`** — `lftp` en FTPS explicite, TLS forcé et certificat vérifié. Aucun filtre sur
   le port 21, et l'identifiant peut être un **compte FTP secondaire cloisonné** sur la
   racine publique : rayon d'impact plus petit qu'en SSH, révocable en un clic.

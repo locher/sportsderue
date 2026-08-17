@@ -14,8 +14,15 @@
 #
 # Son seul risque est en dehors du code : o2switch **filtre SSH par liste blanche
 # d'adresses IP**, et les runners GitHub en changent à chaque exécution. Leur documentation
-# précise toutefois que « les services massivement utilisés, comme par exemple GitHub,
-# Bitbucket […] devraient déjà être en liste blanche ». Devraient. Le workflow
+# précise que « les services massivement utilisés, comme par exemple GitHub, Bitbucket […]
+# devraient déjà être en liste blanche » — devraient.
+#
+# On ne parie donc pas dessus : si le secret `O2SWITCH_CPANEL_TOKEN` est renseigné, le
+# workflow **autorise l'IP du runner lui-même** juste avant de se connecter et la retire
+# après (API cPanel `SshWhitelist`, port 2083, non filtré). C'est le motif que o2switch
+# publie dans ses propres workflows d'exemple, et il rend la connexion déterministe. Sans
+# ce jeton, l'étape est sautée et on retombe sur le pari.
+#
 # `test-connexion.yml` répond à la question en lecture seule, sans rien déployer : à lancer
 # avant la première étiquette.
 #
@@ -30,12 +37,17 @@
 # ## Secrets (Settings → Secrets and variables → Actions)
 #
 # Transport SSH :
-#   O2SWITCH_HOTE          nom d'hôte (le domaine hébergé fait l'affaire)
+#   O2SWITCH_HOTE          **nom d'hôte du serveur** (`xxx.o2switch.net`), et pas le
+#                          domaine : il sert aussi pour l'API cPanel sur le port 2083, dont
+#                          le certificat porte ce nom-là
 #   O2SWITCH_UTILISATEUR   identifiant cPanel
 #   O2SWITCH_CLE_SSH       clé privée dédiée au déploiement, en entier
 #   O2SWITCH_HOTES_CONNUS  sortie de `ssh-keyscan <hôte>`, pour ne pas faire confiance
 #                          aveuglément au premier serveur qui répond
 #   O2SWITCH_RACINE        chemin absolu de la racine publique (/home/xxx/public_html)
+#   O2SWITCH_CPANEL_TOKEN  jeton d'API cPanel (facultatif mais conseillé) : il permet au
+#                          workflow d'ouvrir le pare-feu pour lui-même. Un jeton se révoque
+#                          seul, sans toucher au mot de passe du compte.
 #
 # Transport FTPS :
 #   O2SWITCH_FTP_HOTE / _UTILISATEUR / _MOTDEPASSE, et
@@ -71,6 +83,12 @@ env:
 jobs:
   deployer:
     runs-on: ubuntu-latest
+    env:
+      # Vrai si le jeton d'API cPanel est renseigné. On peut alors autoriser l'IP du runner
+      # dans la liste blanche SSH juste avant de déployer et la retirer après, au lieu
+      # d'espérer que les plages GitHub y soient déjà. Le secret lui-même n'est pas mis en
+      # environnement, seulement le fait qu'il existe.
+      PAREFEU: ${{ secrets.O2SWITCH_CPANEL_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -126,6 +144,24 @@ jobs:
         run: cp deploy/o2switch/.htaccess dist/.htaccess
 
       # ------------------------------------------------------------------ transport SSH --
+      # o2switch filtre SSH par liste blanche d'adresses IP. Plutôt que d'espérer que celle
+      # du runner y soit, on l'ajoute juste avant de passer et on la retire après — c'est le
+      # motif que o2switch publie lui-même dans ses workflows d'exemple. Sans le jeton
+      # d'API, cette étape est sautée et on retombe sur le pari précédent.
+      - name: Autoriser l'IP du runner sur le pare-feu
+        if: env.TRANSPORT == 'ssh' && env.PAREFEU == 'true'
+        env:
+          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_HOTE }}
+          O2SWITCH_CPANEL_LOGIN: ${{ secrets.O2SWITCH_UTILISATEUR }}
+          O2SWITCH_CPANEL_TOKEN: ${{ secrets.O2SWITCH_CPANEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          ip=$(curl -sS --max-time 15 https://api.ipify.org)
+          echo "IP sortante du runner : $ip"
+          # Mémorisée pour l'étape de nettoyage, qui tourne même si le déploiement échoue.
+          echo "RUNNER_IP=$ip" >> "$GITHUB_ENV"
+          scripts/parefeu-o2switch.sh autorise "$ip"
+
       - name: Préparer la connexion SSH
         if: env.TRANSPORT == 'ssh'
         env:
@@ -160,7 +196,7 @@ jobs:
         run: |
           set -euo pipefail
           if ! ssh o2switch true 2>/tmp/ssh.log; then
-            echo "::error::Connexion SSH impossible. Si c'est un délai d'attente, le pare-feu d'o2switch bloque l'IP du runner : basculer la variable DEPLOIEMENT_TRANSPORT sur « ftps »."
+            echo "::error::Connexion SSH impossible. Si c'est un délai d'attente, le pare-feu bloque l'IP du runner : renseigner le secret O2SWITCH_CPANEL_TOKEN pour que le workflow l'autorise de lui-même, ou basculer la variable DEPLOIEMENT_TRANSPORT sur « ftps »."
             cat /tmp/ssh.log
             exit 1
           fi
@@ -236,3 +272,13 @@ jobs:
       # partent plus, sans que l'application cesse de fonctionner.
       - name: Vérifier le contrat de service
         run: npm run verifie-deploiement -- https://sportsderue.fr
+
+      # `always()` : la porte se referme même si le déploiement a échoué en cours de route.
+      # Le compte n'a droit qu'à 5 exceptions, une fuite les épuiserait en quelques essais.
+      - name: Retirer l'IP du runner du pare-feu
+        if: always() && env.TRANSPORT == 'ssh' && env.PAREFEU == 'true' && env.RUNNER_IP != ''
+        env:
+          O2SWITCH_CPANEL_SERVEUR: ${{ secrets.O2SWITCH_HOTE }}
+          O2SWITCH_CPANEL_LOGIN: ${{ secrets.O2SWITCH_UTILISATEUR }}
+          O2SWITCH_CPANEL_TOKEN: ${{ secrets.O2SWITCH_CPANEL_TOKEN }}
+        run: scripts/parefeu-o2switch.sh retire "$RUNNER_IP"
