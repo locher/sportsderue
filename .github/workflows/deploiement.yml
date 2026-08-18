@@ -71,7 +71,12 @@ name: Déploiement
 on:
   push:
     tags:
+      # La convention du dépôt est `v1.2.0`, mais un numéro nu (`1.2.0`) déclenche aussi :
+      # une étiquette de version qui ne déploie rien **sans le dire** est exactement le
+      # genre de panne muette que ce projet s'efforce d'éviter. Le premier essai s'est
+      # perdu comme ça.
       - 'v*'
+      - '[0-9]*'
   # Permet de rejouer une mise en ligne sans créer d'étiquette.
   workflow_dispatch:
 
