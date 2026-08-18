@@ -102,18 +102,35 @@ jobs:
           for essai in $(seq 1 $essais); do
             if ssh -i ~/.ssh/id_test -o IdentitiesOnly=yes -o BatchMode=yes \
                    -o ConnectTimeout=15 -p 22 "$UTILISATEUR@$HOTE" \
-                   "echo CONNECTE; pwd; ls -d '$RACINE' 2>/dev/null || echo 'racine introuvable : $RACINE'" \
-                   2>/tmp/ssh.log; then
+                   "pwd; if [ -d '$RACINE' ]; then echo RACINE_OK; else echo RACINE_ABSENTE; fi" \
+                   >/tmp/ssh.out 2>/tmp/ssh.log; then
               ok=1; break
             fi
             [ "$essai" = "$essais" ] || { echo "Tentative $essai sans réponse, nouvel essai dans 5 s…"; sleep 5; }
           done
           if [ -n "$ok" ]; then
+            cat /tmp/ssh.out
             echo "### SSH — ✅ la connexion passe" >> "$GITHUB_STEP_SUMMARY"
             if [ "$PAREFEU" = true ]; then
               echo "Le déploiement par \`rsync\` fonctionnera : garder le transport \`ssh\`." >> "$GITHUB_STEP_SUMMARY"
             else
               echo "Et sans même ouvrir le pare-feu : les plages GitHub sont bien déjà en liste blanche chez o2switch." >> "$GITHUB_STEP_SUMMARY"
+            fi
+
+            # La racine publique est vérifiée ici, et son absence fait échouer le test. Ce
+            # n'est pas du zèle : le déploiement y lance un `rsync --delete`, donc un chemin
+            # fautif est la seule erreur de configuration de ce projet qui puisse détruire
+            # des fichiers au lieu de simplement échouer.
+            if grep -q RACINE_OK /tmp/ssh.out; then
+              echo "Racine publique \`$RACINE\` — ✅ présente." >> "$GITHUB_STEP_SUMMARY"
+            else
+              {
+                echo "### Racine publique — ❌ \`$RACINE\` n'existe pas"
+                echo ""
+                echo "Le déploiement y lancerait un \`rsync --delete\`. Corriger \`O2SWITCH_RACINE\` :"
+                echo "le chemin absolu affiché par \`pwd\` dans le Terminal de cPanel, suivi de \`/public_html\`."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
             fi
           else
             cat /tmp/ssh.log
