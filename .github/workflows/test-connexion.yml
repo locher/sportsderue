@@ -52,8 +52,25 @@ jobs:
           O2SWITCH_CPANEL_LOGIN: ${{ secrets.O2SWITCH_UTILISATEUR }}
           O2SWITCH_CPANEL_TOKEN: ${{ secrets.O2SWITCH_CPANEL_TOKEN }}
         run: |
-          echo "Mode testé : **pare-feu ouvert par le workflow** (jeton d'API présent)." >> "$GITHUB_STEP_SUMMARY"
-          scripts/parefeu-o2switch.sh autorise "$RUNNER_IP"
+          # Le compte rendu vient **après** l'appel, jamais avant : annoncer « mode testé »
+          # puis échouer laissait un résumé qui affirmait une chose que le job n'avait pas
+          # faite, et aucune trace de la vraie panne.
+          if scripts/parefeu-o2switch.sh autorise "$RUNNER_IP"; then
+            echo "Mode testé : **pare-feu ouvert par le workflow** (jeton d'API présent)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### Pare-feu — ❌ l'ouverture a échoué"
+              echo ""
+              echo "Trois causes, par ordre de fréquence :"
+              echo "- **certificat** — le port 2083 vérifie le nom d'hôte, contrairement à SSH. Renseigner \`O2SWITCH_CPANEL_SERVEUR\` avec le « Nom du serveur » lu dans cPanel → Informations générales."
+              echo "- **jeton** — \`O2SWITCH_CPANEL_TOKEN\` invalide, ou \`O2SWITCH_UTILISATEUR\` qui n'est pas l'identifiant cPanel."
+              echo "- **plafond** — les 5 exceptions du compte sont déjà prises (cPanel → Autorisation SSH)."
+              echo ""
+              echo "Le journal de cette étape nomme laquelle : code HTTP, message de curl et corps de la réponse de l'API."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "La connexion SSH n'a donc pas été tentée." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: SSH
         if: inputs.transport == 'ssh' || inputs.transport == 'les-deux'

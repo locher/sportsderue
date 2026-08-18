@@ -169,7 +169,20 @@ jobs:
           echo "IP sortante du runner : $ip"
           # Mémorisée pour l'étape de nettoyage, qui tourne même si le déploiement échoue.
           echo "RUNNER_IP=$ip" >> "$GITHUB_ENV"
-          scripts/parefeu-o2switch.sh autorise "$ip"
+          if ! scripts/parefeu-o2switch.sh autorise "$ip"; then
+            {
+              echo "### Pare-feu — ❌ l'ouverture a échoué"
+              echo ""
+              echo "Trois causes, par ordre de fréquence :"
+              echo "- **certificat** — le port 2083 vérifie le nom d'hôte, contrairement à SSH. Renseigner \`O2SWITCH_CPANEL_SERVEUR\` avec le « Nom du serveur » lu dans cPanel → Informations générales."
+              echo "- **jeton** — \`O2SWITCH_CPANEL_TOKEN\` invalide, ou \`O2SWITCH_UTILISATEUR\` qui n'est pas l'identifiant cPanel."
+              echo "- **plafond** — les 5 exceptions du compte sont déjà prises (cPanel → Autorisation SSH)."
+              echo ""
+              echo "Le journal de cette étape nomme laquelle : code HTTP, message de curl et corps de la réponse de l'API."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Ouverture du pare-feu impossible, rien n'a été déployé. Voir le résumé du job."
+            exit 1
+          fi
 
       - name: Préparer la connexion SSH
         if: env.TRANSPORT == 'ssh'

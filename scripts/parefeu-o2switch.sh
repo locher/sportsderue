@@ -3,16 +3,18 @@
 # Autorise (ou retire) une adresse IP dans la liste blanche SSH d'o2switch.
 #
 # Pourquoi ce script existe : o2switch filtre l'accès SSH par liste blanche d'adresses IP,
-# et les runners GitHub en changent à chaque exécution. Leur documentation laisse entendre
-# que GitHub est peut-être déjà autorisé, sans le garantir. Plutôt que de parier, on ouvre
-# la porte juste avant de passer et on la referme derrière — c'est exactement le motif que
-# o2switch publie lui-même dans ses workflows d'exemple.
+# et les runners GitHub en changent à chaque exécution. Mesuré, pas supposé — les plages
+# GitHub ne sont pas autorisées d'office, contrairement à ce que laisse entendre leur
+# documentation. On ouvre donc la porte juste avant de passer et on la referme derrière,
+# comme dans les workflows d'exemple que o2switch publie.
 #
 # L'API est celle de cPanel (UAPI), sur le port 2083, qui n'est soumis à aucun filtre.
-# L'authentification se fait par **jeton d'API** (cPanel → Gérer les jetons d'API) et non
-# par le mot de passe du compte : un jeton se révoque seul, sans changer le mot de passe.
+# L'authentification se fait par **jeton d'API** (cPanel → Jetons d'API, ou
+# `uapi Tokens create_full_access name=…` si l'interface est en panne) et non par le mot de
+# passe du compte : un jeton se révoque seul.
 #
-#   O2SWITCH_CPANEL_SERVEUR   nom d'hôte du serveur (xxx.o2switch.net)
+#   O2SWITCH_CPANEL_SERVEUR   nom d'hôte joignable en HTTPS sur 2083, dont le certificat
+#                             porte ce nom (le « Nom du serveur » de cPanel)
 #   O2SWITCH_CPANEL_LOGIN     identifiant cPanel
 #   O2SWITCH_CPANEL_TOKEN     jeton d'API
 #
@@ -34,20 +36,31 @@ PORT=22
 : "${O2SWITCH_CPANEL_LOGIN:?identifiant cPanel manquant}"
 : "${O2SWITCH_CPANEL_TOKEN:?jeton d’API cPanel manquant}"
 
-# `--fail-with-body` fait ressortir un code HTTP d'erreur sans jeter la réponse, qui porte
-# l'explication.
+# Renvoie le corps de la réponse sur stdout, et en cas d'échec un diagnostic sur stderr.
+#
+# Le code HTTP est capturé **séparément du corps** parce que c'est lui qui distingue les
+# pannes qui se ressemblent : un jeton refusé (401/403), une fonction absente du serveur
+# (404), ou un appel accepté mais refusé sur le fond (200 avec `status: 0`, typiquement le
+# plafond de 5 exceptions). Sans cette distinction, on relit trois fois le même message
+# sans savoir quoi corriger.
 #
 # Pas de `-k`, jamais : ce qui transite ici est le jeton d'API du compte. Une erreur de
 # vérification du certificat est donc une information, pas une gêne — et elle a une cause
-# précise et fréquente, d'où le message dédié. Le nom qui marche pour SSH ne vaut pas
-# forcément pour le port 2083 : SSH ne regarde aucun certificat, cPanel si.
+# précise, le port 2083 vérifiant un nom d'hôte là où SSH s'en moque.
 uapi() {
-  local sortie code=0
-  sortie=$(curl -sS --max-time 45 --fail-with-body \
-    -H "Authorization: cpanel ${O2SWITCH_CPANEL_LOGIN}:${O2SWITCH_CPANEL_TOKEN}" \
-    "https://${O2SWITCH_CPANEL_SERVEUR}:2083/execute/SshWhitelist/$1") || code=$?
+  local fichier http reseau=0
+  fichier=$(mktemp)
 
-  if [ "$code" = 60 ]; then
+  http=$(curl -sS --max-time 45 -o "$fichier" -w '%{http_code}' \
+    -H "Authorization: cpanel ${O2SWITCH_CPANEL_LOGIN}:${O2SWITCH_CPANEL_TOKEN}" \
+    "https://${O2SWITCH_CPANEL_SERVEUR}:2083/execute/SshWhitelist/$1") || reseau=$?
+
+  # Le corps est toujours restitué, y compris en erreur : c'est souvent lui qui nomme la
+  # cause réelle.
+  cat "$fichier"
+  rm -f "$fichier"
+
+  if [ "$reseau" = 60 ]; then
     {
       echo "Le certificat de ${O2SWITCH_CPANEL_SERVEUR}:2083 ne couvre pas ce nom."
       echo "Renseigner le secret O2SWITCH_CPANEL_SERVEUR avec le « Nom du serveur » lu dans"
@@ -57,8 +70,25 @@ uapi() {
     return 60
   fi
 
-  printf '%s' "$sortie"
-  return "$code"
+  if [ "$reseau" != 0 ]; then
+    echo "Appel vers ${O2SWITCH_CPANEL_SERVEUR}:2083 impossible (curl $reseau)." >&2
+    return "$reseau"
+  fi
+
+  if [ "$http" != 200 ]; then
+    echo "L'API cPanel a répondu HTTP $http." >&2
+    case "$http" in
+      401|403)
+        echo "Jeton refusé. Vérifier O2SWITCH_CPANEL_TOKEN, et que O2SWITCH_UTILISATEUR est" >&2
+        echo "bien l'identifiant cPanel (pas une adresse e-mail)." >&2
+        ;;
+      404)
+        echo "Fonction introuvable : le module SshWhitelist n'est pas exposé par ce serveur," >&2
+        echo "ou le nom d'hôte pointe ailleurs que sur l'hébergement." >&2
+        ;;
+    esac
+    return 22
+  fi
 }
 
 case "$action" in
@@ -69,19 +99,27 @@ case "$action" in
   autorise)
     [ -n "$ip" ] || { echo "Usage : $0 autorise <ip>" >&2; exit 2; }
 
-    # L'état courant est affiché avant d'ajouter : le compte n'a droit qu'à **5
-    # exceptions**, et un échec d'ajout se comprend mal sans savoir ce qu'il y avait déjà.
+    # L'état courant d'abord : le compte n'a droit qu'à **5 exceptions**, et un échec
+    # d'ajout ne se comprend pas sans savoir ce qu'il y avait déjà.
     echo "Exceptions déjà en place :"
     uapi list | jq -c '.data[]? | {address, port, direction}' || true
 
-    reponse=$(uapi "add?address=${ip}&port=${PORT}")
+    reponse=$(uapi "add?address=${ip}&port=${PORT}") || {
+      echo "── réponse de l'API ──" >&2
+      printf '%s\n' "${reponse:-(vide)}" >&2
+      exit 1
+    }
+
     if printf '%s' "$reponse" | jq -e '.status == 1' >/dev/null 2>&1; then
       echo "IP ${ip} autorisée sur le port ${PORT}."
     else
       printf '%s\n' "$reponse" | jq . 2>/dev/null || printf '%s\n' "$reponse"
-      echo "Échec de l’ajout. Cause la plus fréquente : les 5 exceptions autorisées sont" >&2
-      echo "déjà prises — les nettoyer dans cPanel → Autorisation SSH. Ne pas utiliser" >&2
-      echo "remove_all sans y penser, il supprimerait aussi votre propre accès." >&2
+      {
+        echo "L'API a répondu sans erreur de transport mais a refusé l'ajout."
+        echo "Cause la plus fréquente : les 5 exceptions autorisées sont déjà prises — les"
+        echo "nettoyer dans cPanel → Autorisation SSH. Ne pas utiliser remove_all sans y"
+        echo "penser, il supprimerait aussi votre propre accès."
+      } >&2
       exit 1
     fi
     ;;
