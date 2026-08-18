@@ -253,9 +253,14 @@ jobs:
           # validation du certificat (AutoSSL) et `cgi-bin` est créé par cPanel. Les
           # supprimer casserait le renouvellement du certificat, en silence et des
           # semaines plus tard.
-          rsync -rlptz --delete --chmod=D755,F644 \
+          rsync -rlptz --delete --chmod=D755,F644 --stats \
             --exclude '/.well-known/' --exclude '/cgi-bin/' \
             dist/ "o2switch:$RACINE/"
+
+          # Preuve que les fichiers ont atterri là où on croit. Sans elle, un transfert
+          # réussi et un transfert vide laissent exactement la même trace : rien.
+          echo "--- contenu de la racine après envoi ---"
+          ssh o2switch "ls -1 '$RACINE' | head -20; echo; ls -l '$RACINE/index.html'"
 
       # ----------------------------------------------------------------- transport FTPS --
       - name: Installer lftp
@@ -301,6 +306,32 @@ jobs:
 
           bye
           LFTP
+
+      # Le piège que ce contrôle existe pour nommer : `rsync` peut réussir parfaitement dans
+      # un dossier qui n'est pas la racine servie par le domaine. Chez cPanel, un domaine
+      # additionnel n'a pas `public_html` pour racine — et l'arbitre, lui, dirait seulement
+      # « /sw.js en 404 », ce qui ressemble à un site cassé plutôt qu'à un chemin fautif.
+      - name: Contrôler que le domaine sert bien ce qui vient d'être envoyé
+        run: |
+          empreinte=$(sed -n 's/.*\/assets\/\([A-Za-z0-9._-]*\.js\).*/\1/p' dist/index.html | head -1)
+          echo "Fichier attendu dans la page servie : $empreinte"
+          if curl -sS --max-time 25 https://sportsderue.fr/ | grep -q "$empreinte"; then
+            echo "Le domaine sert bien la version qui vient d'être déployée."
+          else
+            {
+              echo "### Racine servie — ❌ le domaine ne sert pas ce qui a été envoyé"
+              echo ""
+              echo "Le transfert a réussi, mais \`https://sportsderue.fr/\` ne contient pas"
+              echo "\`$empreinte\`. Les fichiers sont donc partis dans un dossier qui n'est pas"
+              echo "la racine de ce domaine."
+              echo ""
+              echo "À vérifier dans **cPanel → Domaines**, colonne « Répertoire racine du document » :"
+              echo "chez cPanel, un domaine additionnel n'a pas \`public_html\` pour racine mais un"
+              echo "dossier à son nom. Corriger \`O2SWITCH_RACINE\` avec la valeur affichée là."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Le domaine ne sert pas les fichiers envoyés : O2SWITCH_RACINE ne désigne pas la racine de sportsderue.fr. Voir le résumé du job."
+            exit 1
+          fi
 
       # L'arbitre du dépôt, lancé contre le site réellement servi. Presque rien de ce qui
       # suit ne se voit à l'œil : un `max-age` de trop sur `sw.js` et les mises à jour ne
