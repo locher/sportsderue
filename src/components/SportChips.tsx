@@ -1,4 +1,5 @@
 import { CATEGORIES, DEFAULT_CATEGORY_IDS, readableOn, type CategoryId } from '../lib/sports'
+import { track } from '../lib/audience'
 
 interface Props {
   active: CategoryId[]
@@ -20,11 +21,18 @@ export function SportChips({ active, onChange }: Props) {
   const isDefault = sameSet(active, DEFAULT_CATEGORY_IDS)
 
   const toggle = (id: CategoryId) => {
+    // Une seule chose est mesurée ici : la catégorie que la tape vient d'allumer ou
+    // d'éteindre. C'est la répartition de cet événement par `sport` qui dit quels
+    // filtres servent — et, par leur absence, lesquels ne servent jamais. Les gestes en
+    // bloc (« Tous », les groupes, la réinitialisation) sont comptés à part pour ne pas
+    // gonfler ce décompte de dix-huit d'un coup.
     if (isDefault) {
+      track('filtre_sport', { sport: id, actif: true, source: 'puces' })
       onChange([id])
       return
     }
     const isActive = active.includes(id)
+    track('filtre_sport', { sport: id, actif: !isActive, source: 'puces' })
     if (isActive && active.length === 1) {
       onChange(DEFAULT_CATEGORY_IDS)
       return
@@ -37,7 +45,10 @@ export function SportChips({ active, onChange }: Props) {
       <button
         type="button"
         aria-pressed={isDefault}
-        onClick={() => onChange(DEFAULT_CATEGORY_IDS)}
+        onClick={() => {
+          track('filtre_tous', { source: 'puces' })
+          onChange(DEFAULT_CATEGORY_IDS)
+        }}
         className={`springy shrink-0 self-center rounded-full px-4 py-2.5 text-sm font-extrabold whitespace-nowrap shadow-card ${
           isDefault ? 'bg-lime text-ink' : 'glass text-ink'
         }`}

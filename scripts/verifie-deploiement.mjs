@@ -26,7 +26,11 @@ if (!base) {
   process.exit(2)
 }
 
-const SERVICES = ['data.geopf.fr', 'equipements.sports.gouv.fr']
+// Les trois hôtes que `connect-src` doit autoriser : les deux API de l'État, et
+// l'ingestion de la mesure d'audience. Le troisième est là pour la même raison que les
+// deux premiers — oublié dans la CSP, il ne casse rien de visible : les envois sont
+// refusés par le navigateur et les tableaux de bord restent simplement vides.
+const SERVICES = ['data.geopf.fr', 'equipements.sports.gouv.fr', 'eu.i.posthog.com']
 
 let echecs = 0
 let alertes = 0

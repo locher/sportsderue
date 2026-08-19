@@ -109,8 +109,17 @@ DirectoryIndex index.html
 
 # --- 5. En-têtes de sécurité -----------------------------------------------------------
 # `always` les pose y compris sur les réponses d'erreur (404, 5xx).
+#
+# `connect-src` énumère les trois seuls services appelés depuis le navigateur : les deux
+# API de l'État, et l'ingestion de la mesure d'audience (`eu.i.posthog.com`, instance
+# européenne). Rien d'autre ne doit y entrer sans raison — et une source de données
+# oubliée ici voit ses appels refusés, ce qui est bien le but. Deux choses qui n'y sont
+# volontairement pas : `eu-assets.i.posthog.com`, parce que PostHog est configuré pour ne
+# charger aucun script à l'exécution (`disable_external_dependency_loading`), et donc
+# aucune ligne de `script-src` non plus. Changer `VITE_POSTHOG_HOST` au build impose de
+# changer cette ligne, ici et dans les deux variantes de `deploy/`.
 <IfModule mod_headers.c>
-  Header always set Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://data.geopf.fr https://equipements.sports.gouv.fr"
+  Header always set Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://data.geopf.fr https://equipements.sports.gouv.fr https://eu.i.posthog.com"
 
   # Doublon assumé de `frame-ancestors`, pour les navigateurs qui ne lisent que celui-ci.
   Header always set X-Frame-Options "DENY"

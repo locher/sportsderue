@@ -5,6 +5,7 @@ import { playgroundRecordUrl, playgroundsDate } from '../lib/playgrounds'
 import { directionsUrl, formatDistance, streetViewUrl } from '../lib/geo'
 import { sameLabel } from '../lib/text'
 import { categoryStyle } from '../lib/sports'
+import { distanceBucket, track } from '../lib/audience'
 import { BottomSheet } from './BottomSheet'
 import {
   AccessibleIcon,
@@ -66,6 +67,11 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
       setDetail(null)
       return
     }
+    // Le bon endroit pour compter une fiche ouverte : cet effet ne se rejoue que quand
+    // l'équipement *désigné* change, et il couvre aussi l'ouverture par lien partagé,
+    // qui ne passe pas par une tape. La catégorie et la base sont les seules choses
+    // envoyées — jamais l'identifiant, jamais les coordonnées.
+    track('equipement_ouvert', { source: current.source, sport: current.category })
     // Une aire de jeux arrive déjà complète : le fichier statique porte toutes ses
     // étiquettes, contrairement à Data ES dont la liste n'est qu'un extrait et qui
     // impose un second appel pour ouvrir une fiche.
@@ -206,6 +212,14 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
               href={directionsUrl(equipment, equipment.name)}
               target="_blank"
               rel="noreferrer"
+              onClick={() =>
+                track('on_y_va', {
+                  source: equipment.source,
+                  sport: equipment.category,
+                  // En tranches, jamais au mètre : voir `distanceBucket`.
+                  distance: distanceBucket(equipment.distance),
+                })
+              }
               className="springy flex flex-1 items-center justify-center gap-2 rounded-full bg-lime px-4 py-4 font-extrabold text-ink shadow-lift"
             >
               <RouteIcon /> On y va
@@ -263,6 +277,9 @@ export function EquipmentSheet({ equipment, onClose }: Props) {
             href={streetViewUrl(equipment)}
             target="_blank"
             rel="noreferrer"
+            onClick={() =>
+              track('voir_la_rue', { source: equipment.source, sport: equipment.category })
+            }
             className="springy flex items-center gap-2.5 rounded-[22px] bg-canvas p-4 text-left"
           >
             <StreetViewIcon className="size-4.5 shrink-0 text-ink" />

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LngLat } from '../types'
 import { distanceMeters } from '../lib/geo'
+import { track } from '../lib/audience'
 
 export type GeolocationStatus =
   | 'idle'
@@ -49,6 +50,25 @@ const MESSAGES: Record<GeolocationStatus, string | null> = {
   unavailable: 'Votre appareil ne permet pas la géolocalisation. Recherchez une ville.',
   timeout: 'La position met trop de temps à arriver. Réessayez ou recherchez une ville.',
   error: 'Position introuvable pour le moment. Réessayez ou recherchez une ville.',
+}
+
+/**
+ * D'où part la demande de position. Mesuré parce que la réponse n'est pas la même : au
+ * démarrage la demande n'a aucun geste utilisateur derrière elle — c'est le cas fragile
+ * sur WebKit (voir « Géolocalisation sur iOS » dans CLAUDE.md) — alors qu'une tape sur
+ * « Me localiser » ou sur « Réessayer » en fournit un.
+ */
+export type LocateOrigin = 'demarrage' | 'bouton' | 'recherche' | 'reessai'
+
+/** Nom du résultat dans la mesure d'audience. */
+const RESULTAT: Record<GeolocationStatus, string> = {
+  idle: 'inconnu',
+  locating: 'inconnu',
+  ready: 'accordee',
+  denied: 'refusee',
+  unavailable: 'indisponible',
+  timeout: 'delai',
+  error: 'erreur',
 }
 
 function statusForError(error: GeolocationPositionError): GeolocationStatus {
@@ -125,6 +145,9 @@ export function useGeolocation() {
         tracking.current = false
         pauseWatch()
         setStatus('denied')
+        // Une autorisation retirée en cours de route, ce n'est pas la même histoire
+        // qu'un refus à la demande : d'où une origine à part.
+        track('geolocalisation_resultat', { origine: 'suivi', resultat: 'refusee' })
       },
       // Haute précision indispensable ici : sans elle la position vient du Wi-Fi ou du
       // réseau et ne bouge pas d'un pas à l'autre, le suivi n'aurait rien à suivre.
@@ -151,21 +174,31 @@ export function useGeolocation() {
     }
   }, [startWatch, pauseWatch])
 
-  const locate = useCallback((): Promise<UserPosition | null> => {
+  const locate = useCallback((origine: LocateOrigin): Promise<UserPosition | null> => {
     if (!('geolocation' in navigator)) {
       setStatus('unavailable')
+      track('geolocalisation_demandee', { origine })
+      track('geolocalisation_resultat', { origine, resultat: RESULTAT.unavailable })
       return Promise.resolve(null)
     }
     // Le suivi tourne et vient de mesurer : la position connue est la bonne, il n'y a
     // rien à redemander. Une tape sur « Me localiser » ne sert alors qu'à recentrer.
     if (current.current && Date.now() - lastFixAt.current < FRESH_MS) {
       startWatch()
+      // Compté quand même, et comme une réussite : de ce côté-ci de l'écran la personne
+      // a bien demandé sa position et l'a bien obtenue. `deja_connue` distingue le cas
+      // pour ne pas fausser le délai d'obtention.
+      track('geolocalisation_demandee', { origine })
+      track('geolocalisation_resultat', { origine, resultat: RESULTAT.ready, deja_connue: true })
       return Promise.resolve(current.current)
     }
+    // Une seconde tape pendant qu'une demande est en vol n'est pas une seconde demande :
+    // elle n'est pas comptée, celle qui est en cours rendra son verdict.
     if (pending.current) return Promise.resolve(null)
 
     pending.current = true
     setStatus('locating')
+    track('geolocalisation_demandee', { origine })
 
     return new Promise((resolve) => {
       navigator.geolocation.getCurrentPosition(
@@ -173,13 +206,16 @@ export function useGeolocation() {
           pending.current = false
           const next = accept(coords, timestamp)
           setStatus('ready')
+          track('geolocalisation_resultat', { origine, resultat: RESULTAT.ready })
           // Le point de départ obtenu, le suivi prend le relais.
           startWatch()
           resolve(next)
         },
         (error) => {
           pending.current = false
-          setStatus(statusForError(error))
+          const status = statusForError(error)
+          setStatus(status)
+          track('geolocalisation_resultat', { origine, resultat: RESULTAT[status] })
           resolve(null)
         },
         // Le temps passé sur la demande d'autorisation est compté dans `timeout` :

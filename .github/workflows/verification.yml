@@ -34,4 +34,7 @@ jobs:
 
       - run: npm ci
 
+      # Sans `VITE_POSTHOG_KEY` : un build de vérification n'a rien à mesurer, et la
+      # mesure d'audience se désactive entièrement en l'absence de clé (le morceau
+      # PostHog n'est même pas produit). Rien à ajouter ici, donc — c'est voulu.
       - run: npm run build

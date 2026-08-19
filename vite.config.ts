@@ -40,6 +40,15 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Le morceau de la mesure d'audience est le seul fichier volontairement **hors
+        // du précache**, et ce n'est pas une économie de poids : un bloqueur de
+        // publicité peut refuser cette requête, et un fichier précaché qui échoue fait
+        // échouer l'installation du service worker — donc la mise à jour automatique de
+        // l'application, en silence et pour de bon. La mesure ne doit jamais pouvoir
+        // casser l'application. Hors précache, un blocage ne coûte qu'une mesure
+        // perdue ; le fichier reste servi par le cache HTTP, immuable comme les autres.
+        // Le motif suit le nom du groupe déclaré plus bas : les deux vont ensemble.
+        globIgnores: ['**/mesure-*.js'],
         navigateFallback: `${base}index.html`,
         cleanupOutdatedCaches: true,
         // Map tiles are big; keep the SW precache reasonable and cache them at runtime.
@@ -113,7 +122,15 @@ export default defineConfig({
         // (`advancedChunks` faisait la même chose, rolldown l'a déprécié au profit
         // de `codeSplitting` — même forme, mêmes `groups`.)
         codeSplitting: {
-          groups: [{ name: 'maplibre', test: /node_modules[\\/]maplibre-gl/ }],
+          groups: [
+            { name: 'maplibre', test: /node_modules[\\/]maplibre-gl/ },
+            // PostHog, chargé après la page et jamais avant (voir `lib/audience.ts`).
+            // Le nom du morceau compte : appelé `posthog-*.js`, il serait refusé par les
+            // listes de filtrage des bloqueurs de publicité, qui filtrent sur l'URL. Un
+            // nom neutre garde la mesure au maximum — l'envoi vers PostHog, lui, reste
+            // bloquable, c'est irréductible sans relais sur notre domaine.
+            { name: 'mesure', test: /node_modules[\\/]posthog-js/ },
+          ],
         },
       },
     },

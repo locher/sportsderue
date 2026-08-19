@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { AUDIENCE_COMPILED, audienceRefused, setAudienceRefused } from '../lib/audience'
 import { BottomSheet } from './BottomSheet'
 
 interface Props {
@@ -6,6 +8,15 @@ interface Props {
 }
 
 export function AboutSheet({ open, onClose }: Props) {
+  // Le refus vit dans le `localStorage`, pas dans React : il doit survivre à la
+  // fermeture de la feuille comme à un rechargement.
+  const [refused, setRefused] = useState(audienceRefused)
+
+  const refuse = (value: boolean) => {
+    setAudienceRefused(value)
+    setRefused(value)
+  }
+
   return (
     <BottomSheet open={open} title="À propos" onClose={onClose}>
       <div className="space-y-4 pb-4 text-sm leading-relaxed">
@@ -83,10 +94,48 @@ export function AboutSheet({ open, onClose }: Props) {
         <section>
           <h3 className="display mb-1.5 text-base">Vie privée</h3>
           <p>
-            Aucun compte, aucun traceur, aucune donnée envoyée à un serveur tiers hormis les API
-            publiques de l’État. Votre position ne quitte jamais votre appareil : elle sert
-            uniquement à centrer la carte.
+            Aucun compte, aucune publicité, aucun cookie. <strong>Votre position ne quitte
+            jamais votre appareil</strong> : elle sert à centrer la carte et à calculer des
+            distances, et elle n’est envoyée à personne.
           </p>
+          {AUDIENCE_COMPILED && (
+            <>
+              <p className="mt-2">
+                Une <strong>mesure d’audience anonyme</strong> compte les visites et les
+                fonctions utilisées, pour savoir quoi améliorer. Elle est assurée par{' '}
+                <a
+                  href="https://posthog.com/privacy"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold text-ink underline decoration-lime decoration-2 underline-offset-2"
+                >
+                  PostHog
+                </a>{' '}
+                sur ses serveurs européens : ni vos coordonnées ni l’équipement que vous
+                consultez n’en font partie, et rien ne permet de vous reconnaître d’un
+                appareil à l’autre. Seuls votre pays et votre ville approximative sont
+                déduits de votre adresse IP, comme sur tout site.
+              </p>
+              <label
+                className={`mt-2.5 flex cursor-pointer items-center gap-3 rounded-[22px] p-3 transition-colors ${
+                  refused ? 'bg-lime' : 'bg-canvas'
+                }`}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block font-bold">Refuser la mesure d’audience</span>
+                  <span className="block text-muted">
+                    Prend effet immédiatement, sur cet appareil.
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={refused}
+                  onChange={(event) => refuse(event.target.checked)}
+                  className="size-5 shrink-0 accent-ink"
+                />
+              </label>
+            </>
+          )}
         </section>
 
         <section>

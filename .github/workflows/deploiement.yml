@@ -55,6 +55,16 @@
 #                          Informations générales. Sans ce secret, `O2SWITCH_HOTE` est
 #                          réutilisé.
 #
+# Mesure d'audience (facultative, onglet *Variables* de préférence) :
+#   VITE_POSTHOG_KEY   clé de projet PostHog (`phc_…`). Publique par construction : elle
+#                      ne sert qu'à écrire des événements et se retrouve de toute façon
+#                      dans le bundle. Absente, le site est déployé sans mesure — un
+#                      avertissement le dit dans le journal du job.
+#   VITE_POSTHOG_HOST  seulement pour changer d'instance ; par défaut
+#                      `https://eu.i.posthog.com`. Le changer impose de changer
+#                      `connect-src` dans les trois configurations de `deploy/` et la
+#                      liste `SERVICES` de `scripts/verifie-deploiement.mjs`.
+#
 # Transport FTPS :
 #   O2SWITCH_FTP_HOTE / _UTILISATEUR / _MOTDEPASSE, et
 #   O2SWITCH_FTP_RACINE — `/` si le compte FTP est cloisonné sur la racine publique, ce qui
@@ -146,7 +156,24 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run build
+      # La clé de projet PostHog est **publique par construction** (elle ne sert qu'à
+      # écrire des événements et vit forcément dans le bundle d'un client statique) :
+      # une *variable* d'Actions dit mieux la vérité qu'un secret, mais les deux sont
+      # acceptées, personne n'ayant à se souvenir de cette subtilité.
+      #
+      # Absente, le site part sans mesure d'audience et **rien ne le signale** — pas
+      # d'erreur, pas de page cassée, juste des tableaux de bord qui restent vides. D'où
+      # l'avertissement : c'est exactement la famille de panne muette que ce dépôt
+      # s'efforce de rendre bruyante.
+      - name: Construire le site
+        env:
+          VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY || secrets.VITE_POSTHOG_KEY }}
+          VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
+        run: |
+          if [ -z "${VITE_POSTHOG_KEY:-}" ]; then
+            echo "::warning::VITE_POSTHOG_KEY absente : mise en ligne sans mesure d'audience."
+          fi
+          npm run build
 
       # Le `.htaccess` porte tout ce que l'hébergeur ne fait pas seul : règles de cache,
       # repli page unique, en-têtes de sécurité. Il est copié après le build, donc jamais

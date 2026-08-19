@@ -7,6 +7,7 @@ import {
   type CategoryId,
 } from '../lib/sports'
 import { BottomSheet } from './BottomSheet'
+import { track } from '../lib/audience'
 import { AccessibleIcon, BulbIcon, TreeIcon } from './Icons'
 
 interface Props {
@@ -33,6 +34,7 @@ const GROUPS: { id: 'urbain' | 'nature'; title: string; hint: string }[] = [
 export function FilterSheet({ open, filters, resultCount, onChange, onClose }: Props) {
   const toggleCategory = (id: CategoryId) => {
     const active = filters.categories.includes(id)
+    track('filtre_sport', { sport: id, actif: !active, source: 'feuille' })
     onChange({
       ...filters,
       categories: active
@@ -43,6 +45,9 @@ export function FilterSheet({ open, filters, resultCount, onChange, onClose }: P
 
   const setGroup = (group: 'urbain' | 'nature', on: boolean) => {
     const ids = CATEGORIES.filter((c) => c.group === group).map((c) => c.id)
+    // Un geste, un événement : une tape sur « Tout cocher » n'est pas huit tapes sur
+    // huit sports, et compter ainsi rendrait illisible la répartition par sport.
+    track('filtre_groupe', { groupe: group, actif: on, source: 'feuille' })
     onChange({
       ...filters,
       categories: on
@@ -51,21 +56,26 @@ export function FilterSheet({ open, filters, resultCount, onChange, onClose }: P
     })
   }
 
+  // `flag` reprend le nom que la caractéristique porte déjà dans l'URL (`f=air,eclaire`)
+  // plutôt que le nom du champ : un seul vocabulaire pour l'URL et pour la mesure.
   const options = [
     {
       key: 'outdoorOnly' as const,
+      flag: 'air',
       label: 'Plein air uniquement',
       hint: 'Exclut les équipements en salle',
       icon: <TreeIcon />,
     },
     {
       key: 'litOnly' as const,
+      flag: 'eclaire',
       label: 'Éclairé',
       hint: 'Praticable en soirée',
       icon: <BulbIcon />,
     },
     {
       key: 'accessibleOnly' as const,
+      flag: 'pmr',
       label: 'Accessible PMR',
       hint: 'Accès à l’aire de pratique déclaré accessible',
       icon: <AccessibleIcon />,
@@ -81,14 +91,15 @@ export function FilterSheet({ open, filters, resultCount, onChange, onClose }: P
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
+              track('filtres_reinitialises', { source: 'feuille' })
               onChange({
                 categories: DEFAULT_CATEGORY_IDS,
                 outdoorOnly: false,
                 litOnly: false,
                 accessibleOnly: false,
               })
-            }
+            }}
             className="springy rounded-full px-4 py-3.5 text-sm font-bold text-muted"
           >
             Réinitialiser
@@ -187,9 +198,13 @@ export function FilterSheet({ open, filters, resultCount, onChange, onClose }: P
                     <input
                       type="checkbox"
                       checked={on}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        track('filtre_caracteristique', {
+                          caracteristique: option.flag,
+                          actif: event.target.checked,
+                        })
                         onChange({ ...filters, [option.key]: event.target.checked })
-                      }
+                      }}
                       className="size-5 shrink-0 accent-ink"
                     />
                   </label>

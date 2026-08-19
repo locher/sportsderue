@@ -8,7 +8,7 @@ import { ResultsPanel } from './components/ResultsPanel'
 import { EquipmentSheet } from './components/EquipmentSheet'
 import { AboutSheet } from './components/AboutSheet'
 import { FilterIcon, InfoIcon, LocateIcon, SearchIcon, Spinner } from './components/Icons'
-import { useGeolocation } from './hooks/useGeolocation'
+import { useGeolocation, type LocateOrigin } from './hooks/useGeolocation'
 import { MIN_ZOOM_FOR_DATA, useEquipments } from './hooks/useEquipments'
 import { useViewportHeight } from './hooks/useViewportHeight'
 import { FRANCE_CENTER, FRANCE_ZOOM, distanceMeters } from './lib/geo'
@@ -23,6 +23,7 @@ import {
 } from './lib/urlState'
 import { fetchEquipmentDetail } from './lib/dataes'
 import { fetchPlaygroundDetail, isPlaygroundId } from './lib/playgrounds'
+import { track } from './lib/audience'
 
 const NATURE_IDS = CATEGORIES.filter((c) => c.group === 'nature').map((c) => c.id)
 
@@ -119,7 +120,7 @@ export default function App() {
   useEffect(() => {
     if (askedForLocation.current || boot.current.position) return
     askedForLocation.current = true
-    void geo.locate().then((position) => {
+    void geo.locate('demarrage').then((position) => {
       if (!position) return
       setSearchLabel(null)
       map.current?.flyTo({ lon: position.lon, lat: position.lat, zoom: 13.6 })
@@ -217,13 +218,18 @@ export default function App() {
     if (moved) setFollowUser(false)
   }, [])
 
-  const locateMe = useCallback(() => {
-    setFollowUser(true)
-    setSearchLabel(null)
-    void geo.locate().then((position) => {
-      if (position) map.current?.flyTo({ lon: position.lon, lat: position.lat, zoom: 13.6 })
-    })
-  }, [geo])
+  // L'origine est passée explicitement : ce rappel ne peut donc pas être branché tel
+  // quel sur un `onClick`, qui lui donnerait l'événement de la souris.
+  const locateMe = useCallback(
+    (origine: LocateOrigin) => {
+      setFollowUser(true)
+      setSearchLabel(null)
+      void geo.locate(origine).then((position) => {
+        if (position) map.current?.flyTo({ lon: position.lon, lat: position.lat, zoom: 13.6 })
+      })
+    },
+    [geo],
+  )
 
   const pickPlace = useCallback((place: Place) => {
     setSearchOpen(false)
@@ -314,7 +320,7 @@ export default function App() {
               // cette tape en fournit un, seule façon de revoir la demande native.
               <button
                 type="button"
-                onClick={locateMe}
+                onClick={() => locateMe('reessai')}
                 className="springy mt-2.5 block rounded-full bg-lime px-4 py-2 text-sm font-extrabold text-ink"
               >
                 Réessayer
@@ -338,7 +344,7 @@ export default function App() {
         </button>
         <button
           type="button"
-          onClick={locateMe}
+          onClick={() => locateMe('bouton')}
           aria-label="Me localiser"
           aria-pressed={followUser}
           className={`springy relative grid size-14 place-items-center rounded-full text-ink shadow-float ${
@@ -371,13 +377,17 @@ export default function App() {
         selectedId={selectedId}
         onSelect={onSelect}
         onRetry={equipments.reload}
-        onEnableNature={() =>
+        onEnableNature={() => {
+          track('filtre_groupe', { groupe: 'nature', actif: true, source: 'liste' })
           setFilters((current) => ({
             ...current,
             categories: [...new Set([...current.categories, ...NATURE_IDS])],
           }))
-        }
-        onResetFilters={() => setFilters(DEFAULT_FILTERS)}
+        }}
+        onResetFilters={() => {
+          track('filtres_reinitialises', { source: 'liste' })
+          setFilters(DEFAULT_FILTERS)
+        }}
         onHeightChange={setSheetHeight}
       />
 
@@ -399,7 +409,7 @@ export default function App() {
         onPick={pickPlace}
         onLocate={() => {
           setSearchOpen(false)
-          locateMe()
+          locateMe('recherche')
         }}
         locating={geo.isLocating}
       />
