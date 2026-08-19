@@ -16,8 +16,12 @@ les équipements autour de soi. On filtre par sport en une tape, ou on cherche u
   d'accueil et reste consultable hors-ligne sur les zones déjà visitées.
 - **Sans backend** : le navigateur interroge directement les API publiques de l'État.
   Rien à héberger d'autre que des fichiers statiques.
-- **Sans traceur** : aucune donnée personnelle collectée, la position ne quitte pas
-  l'appareil. L'état de la vue vit dans l'URL, les filtres dans le `localStorage`.
+- **Sans compte, sans cookie** : la position ne quitte pas l'appareil, l'état de la vue
+  vit dans l'URL et les filtres dans le `localStorage`. Une **mesure d'audience anonyme**
+  (PostHog, serveurs européens) compte les visites et les fonctions utilisées : ni
+  coordonnées ni équipement consulté n'y figurent, elle se désactive entièrement sans clé
+  de build, et se refuse depuis la fiche « À propos ». Voir
+  [« Mesure d'audience »](#mesure-daudience).
 
 ## Sources de données
 
@@ -27,6 +31,7 @@ les équipements autour de soi. On filtre par sport en une tape, ou on cherche u
 | Aires de jeux pour enfants | [OpenStreetMap](https://www.openstreetmap.org/copyright), relevé à l'avance et livré avec l'application | non |
 | Fond de carte | [Plan IGN v2 vectoriel](https://geoservices.ign.fr/services-geoplateforme-diffusion) (Géoplateforme) | non |
 | Recherche de ville / adresse | [Géocodage Géoplateforme](https://geoservices.ign.fr/services-geoplateforme-geocodage) (Base Adresse Nationale) | non |
+| Mesure d'audience | [PostHog](https://posthog.com/) (instance européenne) | clé de projet, publique — facultative |
 
 Quota anonyme de l'API Data ES : **5 000 appels par jour et par adresse IP**. Comme les
 requêtes partent du navigateur de chaque visiteur, le quota est individuel ; l'application
@@ -132,6 +137,11 @@ Node 22+ recommandé. Le build produit un site statique : `dist/` se déploie te
 n'importe quel hébergeur. Une seule contrainte : **servir en HTTPS**, sans quoi la
 géolocalisation et le service worker sont désactivés par les navigateurs.
 
+Aucune variable d'environnement n'est nécessaire pour développer. La seule qui existe est
+`VITE_POSTHOG_KEY` (voir `.env.example` et [« Mesure d'audience »](#mesure-daudience)) :
+sans elle, la mesure est entièrement désactivée — c'est le réglage normal en local, on ne
+veut pas mêler ses essais aux chiffres réels.
+
 ### Déploiement
 
 Le site tourne sur un mutualisé **o2switch** (cPanel, Apache/LiteSpeed), servi à la racine
@@ -189,10 +199,11 @@ qu'on demande rien (le certificat, la compression) et laisse tout le reste au
 | **Repli page unique** | Toute URL inconnue rend `index.html` | 404 sur une URL mal recopiée |
 
 Plus les en-têtes de sécurité (CSP, `X-Frame-Options`, `X-Content-Type-Options`,
-`Referrer-Policy`, `Permissions-Policy`, HSTS). `connect-src` y énumère les deux services
-appelés depuis le navigateur — les aires de jeux, servies depuis le site, relèvent de
-`'self'` : **toute nouvelle source de données doit y être ajoutée**, sinon ses appels sont
-refusés par le navigateur.
+`Referrer-Policy`, `Permissions-Policy`, HSTS). `connect-src` y énumère les trois hôtes
+appelés depuis le navigateur — les deux API de l'État et l'ingestion de la mesure
+d'audience ; les aires de jeux, servies depuis le site, relèvent de `'self'` : **toute
+nouvelle source de données doit y être ajoutée**, sinon ses appels sont refusés par le
+navigateur. L'arbitre le vérifie.
 
 Rien de tout cela ne se relit utilement. Après chaque mise en ligne, et impérativement
 après un changement d'hébergeur :
@@ -203,6 +214,94 @@ npm run verifie-deploiement -- https://mon-site.fr
 
 Le script contrôle les six règles et les en-têtes sur le site réel, quel que soit
 l'hébergeur, et sort en erreur si une règle obligatoire n'est pas tenue.
+
+## Mesure d'audience
+
+Cinq questions, et rien d'autre : combien de personnes viennent, combien se géolocalisent,
+quels filtres de sport servent (et lesquels ne servent jamais), combien ouvrent « Voir la
+rue », combien partent avec « On y va ». Tout ce qui est envoyé sert à y répondre ; le
+reste de ce que PostHog sait faire est éteint explicitement dans `src/lib/audience.ts`.
+
+### Mise en route
+
+1. Créer un projet PostHog sur l'instance **européenne** (`eu.posthog.com`) et copier la
+   *Project API key* (`phc_…`).
+2. La déclarer dans `Settings → Secrets and variables → Actions`, onglet **Variables**,
+   sous `VITE_POSTHOG_KEY` — elle n'est pas un secret : elle ne permet que d'écrire des
+   événements et se retrouve de toute façon dans le bundle. Le workflow de déploiement
+   avertit dans son journal si elle manque.
+3. Poser une étiquette de version pour déployer. Rien de plus : il n'y a ni script à
+   ajouter dans `index.html`, ni ligne de CSP à changer (elle autorise déjà
+   `eu.i.posthog.com`).
+
+Sans clé, la mesure est **entièrement absente du build** : le morceau PostHog n'est même
+pas produit. C'est le cas en développement et dans la CI.
+
+### Ce qui est envoyé
+
+| Événement | Quand | Propriétés |
+| --- | --- | --- |
+| `$pageview` | une fois par chargement | `mode_affichage` |
+| `$pageleave` | au départ | — |
+| `geolocalisation_demandee` | une position est demandée | `origine` : `demarrage`, `bouton`, `recherche`, `reessai` |
+| `geolocalisation_resultat` | verdict de la demande | `resultat` : `accordee`, `refusee`, `indisponible`, `delai`, `erreur` ; `origine` (+ `suivi` si l'autorisation est retirée en cours de route) ; `deja_connue` |
+| `filtre_sport` | une catégorie est cochée ou décochée | `sport` (identifiant de catégorie), `actif`, `source` : `puces`, `feuille` |
+| `filtre_groupe` | « Tout cocher / décocher » d'un groupe | `groupe` : `urbain`, `nature` ; `actif`, `source` |
+| `filtre_tous` | puce « Tous » | `source` |
+| `filtres_reinitialises` | « Réinitialiser » | `source` : `feuille`, `liste` |
+| `filtre_caracteristique` | plein air / éclairé / PMR | `caracteristique` : `air`, `eclaire`, `pmr` ; `actif` |
+| `equipement_ouvert` | une fiche s'ouvre (y compris par lien partagé) | `source` : `res`, `osm` ; `sport` |
+| `voir_la_rue` | clic sur « Voir la rue » | `source`, `sport` |
+| `on_y_va` | clic sur « On y va » | `source`, `sport`, `distance` (tranche) |
+
+`mode_affichage` (`application` / `navigateur`) accompagne **tous** les événements : c'est
+ce qui permet de relire chaque mesure séparément pour l'application installée.
+
+### Répondre aux cinq questions
+
+- **Combien de gens viennent** → visiteurs uniques sur `$pageview`.
+- **Combien se géolocalisent** → entonnoir `geolocalisation_demandee` →
+  `geolocalisation_resultat` filtré sur `resultat = accordee`. La répartition par `origine`
+  dit si la demande automatique du démarrage suffit ou si le bouton fait le travail.
+- **Quels filtres d'activité servent, et lesquels non** → répartition de `filtre_sport`
+  (avec `actif = true`) par `sport`. Les catégories **absentes** de cette répartition
+  n'ont jamais servi à personne. La liste complète, pour savoir ce qui manque :
+  `citystade`, `basket`, `foot`, `pingpong`, `tennis`, `skate`, `fitness`, `petanque`,
+  `volley`, `handball`, `rugby`, `athletisme`, `pelote`, `velo`, `jeux` (urbaines) ;
+  `rando`, `escalade`, `eau` (nature).
+- **Combien cliquent sur « Voir la rue »** → `voir_la_rue`, à rapporter à
+  `equipement_ouvert` pour en faire un taux.
+- **Combien cliquent sur « On y va »** → `on_y_va`, même rapport. La propriété `distance`
+  dit de combien loin les gens acceptent de se déplacer.
+
+### Ce qui n'est jamais envoyé
+
+- **Aucune coordonnée.** L'URL de l'application porte `lat`, `lng` et l'équipement
+  consulté (`e`), et PostHog joint `$current_url` à chaque événement : ces paramètres sont
+  remplacés par `<masked>` avant l'envoi (`mask_personal_data_properties`). Aucun
+  événement ne porte non plus d'identifiant d'équipement — seulement sa catégorie.
+- **Aucun cookie, aucun compte, aucun profil de personne.** Les événements sont anonymes ;
+  le comptage des visiteurs uniques repose sur un numéro tiré au sort conservé dans le
+  `localStorage` du navigateur.
+- Ni enregistrement de session, ni carte de chaleur, ni capture automatique de clic, ni
+  sondage : tout est désactivé, et le chargement de scripts extérieurs est interdit
+  (`disable_external_dependency_loading`) — d'où l'absence de toute ligne `script-src`
+  supplémentaire dans la CSP.
+
+Le pays et la ville approximative sont en revanche déduits de l'adresse IP par PostHog,
+comme sur tout site. La fiche « À propos » le dit, et propose de **refuser la mesure** :
+le refus est immédiat, mémorisé, et empêche jusqu'au chargement du script. Un
+`Do-Not-Track` annoncé par le navigateur est respecté (`respect_dnt`).
+
+### À savoir avant de s'étonner des chiffres
+
+- **Les bloqueurs de publicité bloquent l'envoi** vers PostHog : le comptage est un
+  plancher, typiquement 20 à 30 % sous la réalité. Y échapper demanderait un relais sur
+  notre propre domaine, donc un backend.
+- **Les robots sont écartés par PostHog** d'après l'agent utilisateur et
+  `navigator.webdriver` : un parcours automatisé ne remonte rien sans neutraliser les deux.
+- Une visite peut compter **plusieurs** `$pageview` si une nouvelle version est déployée
+  pendant celle-ci : l'application se recharge d'elle-même.
 
 ## Architecture
 
@@ -218,6 +317,7 @@ src/
 │   ├── geo.ts                 distances, emprises, liens d'itinéraire et de vue immersive
 │   ├── cache.ts               cache mémoire des résultats par emprise + filtres
 │   ├── appUpdate.ts           détection et application des nouvelles versions
+│   ├── audience.ts            mesure d'audience : événements, refus, chargement différé
 │   ├── text.ts                comparaison de libellés « au sens près »
 │   └── urlState.ts            état partageable dans l'URL, filtres mémorisés
 ├── hooks/

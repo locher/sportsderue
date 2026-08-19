@@ -53,6 +53,10 @@ soit installable comme une application, et que ça reste gratuit à héberger.
 - Un push sur `main` (ou une pull request vers elle) ne déclenche que
   `.github/workflows/verification.yml` : `npm run build`, donc `tsc --noEmit` puis Vite.
   C'est le témoin vert, il ne publie rien.
+- **Une seule variable de build**, `VITE_POSTHOG_KEY` (plus `VITE_POSTHOG_HOST`, jamais
+  nécessaire en pratique) : elle est lue par le workflow de déploiement depuis les
+  *Variables* d'Actions, et son absence n'échoue pas — elle écrit un `::warning::` dans le
+  journal du job et le site part sans mesure d'audience. Voir « La mesure d'audience ».
 - **La règle du build local tient toujours** : lancer `npm run build` avant de pousser. À
   savoir quand même, ça change la façon de travailler : les journaux d'Actions sont
   lisibles depuis ici (outils GitHub `actions_list`, `get_job_logs`), donc un échec de CI
@@ -497,11 +501,117 @@ Note utile si la question revient : **`api.panoramax.xyz` est l'instance fédér
 sert aussi les photos de `panoramax.ign.fr`. Sur 360 points, aucun n'était couvert par
 l'IGN sans l'être par elle — inutile d'interroger les deux.
 
+## La mesure d'audience
+
+Posée en août 2026, sur demande : combien de gens viennent, combien se géolocalisent,
+quels filtres de sport servent et lesquels ne servent jamais, combien ouvrent « Voir la
+rue », combien partent avec « On y va ». **Cinq questions**, et tout ce qui est envoyé
+sert à y répondre — le reste de ce que PostHog sait faire est éteint option par option
+dans `src/lib/audience.ts`, chaque ligne commentée par ce qu'elle coupe. La liste des
+événements et la façon de lire chaque question sont dans le README (« Mesure
+d'audience ») ; ici, ce qui se paierait deux fois.
+
+**Ce n'est pas une entorse au « aucune clé d'API ».** La clé de projet PostHog ne sert
+qu'à *écrire* : elle est publique par construction et vit dans le bundle, comme dans
+n'importe quel client statique. Elle arrive par `VITE_POSTHOG_KEY` au build (variable
+d'Actions plutôt que secret, c'est plus honnête), et **son absence désactive tout** —
+Vite replie la branche morte, le morceau PostHog n'est même pas produit. C'est le cas en
+développement et dans la CI, et c'est ce qui rend l'application testable sans rien
+envoyer.
+
+Cinq réglages ne sont pas des préférences, ils réparent quelque chose de précis :
+
+1. **`capture_pageview: false`**, et une page vue envoyée à la main. Le comportement par
+   défaut (`'history_change'`) compte une page vue à chaque changement d'URL — or cette
+   application **réécrit son URL à chaque fin de déplacement de carte** (`writeState`, un
+   `replaceState` par `moveend`). Une page vue par glissement de doigt : le nombre de
+   visites n'aurait plus aucun sens. Ne pas remettre le défaut.
+2. **`mask_personal_data_properties` + `custom_personal_data_properties`** avec `lat`,
+   `lng`, `lon`, `e`. PostHog joint `$current_url` à *chaque* événement, et l'URL porte la
+   position et l'équipement consulté : sans ce masquage, la position de chaque visiteur
+   partirait chez un tiers à chaque tape. Même précaution que le `Referrer-Policy`, pour
+   la même raison. La deuxième moitié de la règle est dans les événements eux-mêmes :
+   aucun ne porte d'identifiant d'équipement ni de coordonnée, seulement une catégorie —
+   et la distance en **tranches**, pas en mètres.
+3. **`disable_external_dependency_loading` + tout ce qui charge un script extérieur
+   éteint** (enregistreur de session, sondages, barre d'outils, exceptions, `web-vitals`).
+   C'est ce qui garantit qu'**aucune ligne de `script-src` ne sera jamais à ajouter à la
+   CSP** : seul l'envoi des événements sort, d'où la seule ligne ajoutée à `connect-src`
+   (`eu.i.posthog.com`, instance européenne). `advanced_disable_flags` en prime : aucun
+   drapeau de fonctionnalité n'est utilisé, autant économiser l'appel de démarrage.
+4. **Chargement différé et morceau nommé `mesure`.** PostHog pèse ~82 ko compressés, un
+   tiers de MapLibre : il part en `import()` dynamique sur temps mort, jamais avant que la
+   page soit à l'écran. Le **nom** du morceau n'est pas cosmétique : un fichier
+   `posthog-*.js` est refusé par les listes de filtrage des bloqueurs. Et il est
+   volontairement **hors du précache** du service worker (`globIgnores` dans
+   `vite.config.ts`) : un fichier précaché qui échoue fait échouer l'installation du
+   service worker, donc la mise à jour automatique de l'application, en silence et pour de
+   bon. La mesure ne doit jamais pouvoir casser l'application — d'où aussi le `try/catch`
+   autour du chargement, et la file d'attente plafonnée à 40 événements.
+5. **Un geste, un événement.** Les catégories cochées une par une émettent
+   `filtre_sport` ; les gestes en bloc (« Tous », « Tout cocher », « Réinitialiser », le
+   raccourci « nature » de la liste vide) ont leurs propres événements. Sinon une tape sur
+   « Tout cocher » vaudrait quinze `filtre_sport` et la répartition par sport — c'est-à-dire
+   la réponse à « lesquels ne servent jamais » — ne voudrait plus rien dire.
+
+Deux points d'accroche à ne pas déplacer :
+
+- **`equipement_ouvert` est émis dans l'effet de `EquipmentSheet`**, celui qui ne suit que
+  `id` et `source`. C'est le seul endroit qui compte une fiche ouverte une fois et une
+  seule, et qui couvre **aussi** l'ouverture par lien partagé, laquelle ne passe par
+  aucune tape. Le mettre dans `onSelect` (App) manquerait les liens partagés et rendrait
+  ce rappel non mémoïsable.
+- **L'origine de la géolocalisation est passée en argument à `locate()`** (`demarrage`,
+  `bouton`, `recherche`, `reessai`). Conséquence à ne pas défaire : `locateMe` ne peut plus
+  être branché tel quel sur un `onClick`, qui lui passerait l'événement de la souris.
+
+**Le refus est la source de vérité côté application** (`sportsderue.audience.v1` dans le
+`localStorage`, à côté des filtres) : il empêche le chargement du script, et le coupe par
+`opt_out_capturing()` s'il est déjà là. La fiche « À propos » porte la case, et sa section
+« Vie privée » a été réécrite — elle disait « aucun traceur », ce qui n'était plus vrai.
+Tout le bloc n'apparaît que si une clé a été fournie au build (`AUDIENCE_COMPILED`) :
+sans mesure, aucune annonce de mesure.
+
+Ce qui rend les chiffres plus bas que la réalité, et qu'il ne faut pas chercher à
+« réparer » : **les bloqueurs de publicité bloquent l'envoi** (20 à 30 % typiquement, et
+y échapper demanderait un relais sur notre domaine, donc un backend), et **PostHog écarte
+les robots** d'après l'agent utilisateur et `navigator.webdriver`.
+
+Trois pièges rencontrés en vérifiant, qui coûteront du temps à qui les rencontre à
+nouveau :
+
+- **`writeState` efface tout paramètre d'URL qu'il ne connaît pas.** Il reconstruit
+  l'URL à partir de zéro (`lat`, `lng`, `z`, `s`, `f`, `e`) au premier `moveend`, donc
+  avant l'arrivée de PostHog. Conséquences : `?__posthog_debug=true` ne survit pas (le
+  mode débogage de PostHog est inutilisable ainsi — exposer l'instance le temps d'un
+  essai est plus simple), et **des `utm_*` de campagne seraient perdus**. Si un jour on
+  fait des campagnes, il faudra relever ces paramètres au chargement du module, avant
+  React.
+- **La file d'envoi de PostHog se vide toutes les 3 s** (`request_batching`). Un test qui
+  vérifie un événement 500 ms après la tape ne voit rien ; et les derniers événements
+  d'une visite partent au déchargement par `sendBeacon`, que Playwright n'intercepte pas.
+- **Sur `127.0.0.1`, PostHog marque la personne comme interne** (`defaults` ≥ 2026-01-30
+  pose `internal_or_test_user_hostname`), d'où un `$set` et un `$internal_or_test_user`
+  qui n'apparaissent pas en production.
+
+Vérifié de bout en bout au navigateur, sur le build de production servi derrière les
+en-têtes réellement livrés (CSP lue dans le `.htaccess`), avec une clé factice et les
+envois interceptés : les huit événements partent avec les bonnes propriétés, `lat`, `lng`
+et `e` arrivent en `<masked>`, la distance en tranche, `mode_affichage` sur tous, trois
+requêtes pour dix événements (le regroupement fonctionne), zéro violation de CSP, zéro
+erreur console. Puis le refus : plus aucun envoi, et au rechargement le morceau n'est plus
+chargé du tout. Deux substitutions sont indispensables pour que le test mesure quoi que ce
+soit — un agent utilisateur ordinaire (« HeadlessChrome » est un robot pour PostHog) et
+`navigator.webdriver` neutralisé par `addInitScript`.
+
 ## Les autres services
 
 - **Géocodage** : `https://data.geopf.fr/geocodage/search` et `/reverse`.
   `api-adresse.data.gouv.fr` est déprécié (il redirige en annonçant son retrait).
   Types renvoyés : `municipality`, `locality`, `street`, `housenumber`.
+- **Mesure d'audience** : PostHog, instance **européenne** (`https://eu.i.posthog.com`),
+  clé de projet publique fournie au build. Voir « La mesure d'audience » — l'essentiel
+  tient en une phrase : sans `VITE_POSTHOG_KEY`, rien n'est chargé ni envoyé.
 - **Fond de carte** : styles vectoriels Plan IGN v2 sous
   `https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/`, tuiles
   `/tms/1.0.0/PLAN.IGN/{z}/{x}/{y}.pbf`, sans clé. Six variantes répondent 200 :
@@ -535,7 +645,13 @@ l'IGN sans l'être par elle — inutile d'interroger les deux.
    portant l'emoji) puis `map.addImage()`. Une image manquante ne lève pas d'erreur, elle
    n'affiche rien. Les regroupements, eux, sont des couches `circle` : pas de dégradé
    possible, la profondeur vient d'une lueur lime posée sous le disque d'encre.
-7. **Géolocalisation sur iOS.** Signalé depuis un iPhone : aucune demande d'autorisation
+7. **`writeState` efface les paramètres d'URL étrangers.** Il reconstruit l'URL de zéro à
+   chaque fin de déplacement de carte, donc dans la seconde qui suit l'arrivée. Tout ce qui
+   n'est pas `lat`, `lng`, `z`, `s`, `f`, `e` disparaît : un `?__posthog_debug=true` ne
+   survit pas, et des `utm_*` de campagne seraient perdus avant d'avoir été lus. Ce qu'il
+   faudrait faire le jour où c'est utile : relever `location.search` au chargement du
+   module, avant React.
+8. **Géolocalisation sur iOS.** Signalé depuis un iPhone : aucune demande d'autorisation
    n'apparaît jamais et l'application annonce un refus, alors que tout va bien sur
    ordinateur. `status` ne passe à `'denied'` que sur `PERMISSION_DENIED` (code 1) : le
    navigateur a donc répondu **sans rien demander**, et le blocage est au-dessus de la page.
@@ -572,6 +688,16 @@ La méthode qui marche, et qui a validé l'application de bout en bout :
 3. dérouler un parcours réel — accueil géolocalisé (`geolocation: {43.6047, 1.4442}` pour
    Toulouse), liste, fiche, filtre par sport, filtre « éclairé », recherche d'une autre
    ville, zone vide, retour à la position — et compter les erreurs console.
+
+Pour vérifier la **mesure d'audience**, deux ajouts à cette recette, sans lesquels le test
+ne mesure rien du tout : construire avec une clé factice (`VITE_POSTHOG_KEY=phc_essai npm
+run build`), intercepter `eu.i.posthog.com` pour lire les corps de requête au lieu de les
+laisser sortir (`postDataBuffer()`, puis JSON — ou `data=` en base64 selon la
+compression), **et faire passer le navigateur pour un vrai** : un agent utilisateur
+ordinaire dans le contexte *et* `navigator.webdriver` neutralisé par `addInitScript`.
+PostHog écarte les robots sur ces deux signaux, c'est un bon comportement en production et
+un mur en test. Laisser aussi 4 à 5 s après le dernier geste : la file d'envoi se vide
+toutes les 3 s.
 
 Le filtre d'interception peut rejouer le `where` reçu (extraire les `IN (...)`, la bbox, les
 drapeaux) sur les fixtures : c'est ce qui permet de vérifier que les filtres produisent bien
@@ -680,7 +806,12 @@ Les modifier sans y penser dégrade l'expérience :
   réelle de l'en-tête, mesurée au `ResizeObserver`. Une valeur en dur laissait dépasser un
   bout de carte tronqué dès que le titre passait sur deux lignes.
 - État partagé dans l'URL : `lat`, `lng`, `z`, `s` (sports), `f` (drapeaux), `e`
-  (équipement). Filtres mémorisés sous `sportsderue.filters.v1`.
+  (équipement). Filtres mémorisés sous `sportsderue.filters.v1`, refus de la mesure
+  d'audience sous `sportsderue.audience.v1`. Attention, `writeState` **reconstruit** l'URL :
+  tout paramètre étranger y est effacé au premier déplacement de carte.
+- Aucun événement de mesure ne porte de coordonnée, d'identifiant d'équipement ni de nom
+  de lieu : une catégorie, une base (`res`/`osm`), une distance en tranche. Les paramètres
+  de position de l'URL sont masqués avant l'envoi.
 
 ## Ce qui doit garder son identité entre deux rendus
 
@@ -776,11 +907,15 @@ Deux points qui méritent d'être compris avant d'y toucher :
   `lat`, `lng` et l'équipement consulté, et l'application ouvre des liens vers Google Maps,
   Apple Maps et OpenStreetMap. `strict-origin-when-cross-origin` fait qu'ils n'emportent
   que l'origine — sinon c'est la position de la personne qui part chez un tiers.
-- **`connect-src` énumère les deux services** encore appelés depuis le navigateur
-  (`data.geopf.fr`, `equipements.sports.gouv.fr`). Les aires de jeux n'y sont plus depuis
-  qu'elles sont livrées avec l'application : servies depuis le site, elles relèvent de
-  `'self'`. Toute nouvelle source de données doit y être ajoutée, sinon ses appels sont
-  refusés — et c'est bien le but. `style-src` garde
+- **`connect-src` énumère les trois hôtes** appelés depuis le navigateur
+  (`data.geopf.fr`, `equipements.sports.gouv.fr`, et `eu.i.posthog.com` pour la mesure
+  d'audience). Les aires de jeux n'y sont plus depuis qu'elles sont livrées avec
+  l'application : servies depuis le site, elles relèvent de `'self'`. Toute nouvelle source
+  de données doit y être ajoutée, sinon ses appels sont refusés — et c'est bien le but.
+  L'arbitre le vérifie (liste `SERVICES`). Deux absences volontaires du côté PostHog :
+  `eu-assets.i.posthog.com` et toute ligne de `script-src`, parce que le chargement de
+  scripts extérieurs est interdit dans la configuration (voir « La mesure d'audience »).
+  `style-src` garde
   `'unsafe-inline'` (la charte pose beaucoup de couleurs de sport en ligne, et une feuille
   injectée ne vaut pas un script) ; `worker-src` accepte `blob:` au cas où MapLibre
   basculerait sur un worker en blob.
@@ -801,7 +936,16 @@ un chargement direct en charge quatre.
 
 ## Choix assumés, à ne pas « corriger »
 
-- **Aucun backend, aucune clé d'API.** C'est ce qui rend l'hébergement gratuit.
+- **Aucun backend, aucune clé d'API.** C'est ce qui rend l'hébergement gratuit. La clé de
+  projet PostHog n'y contrevient pas : elle ne sert qu'à écrire des événements, elle est
+  publique par construction, et son absence désactive toute la mesure.
+- **Mesure d'audience anonyme, sans bandeau de consentement.** Ce qui la rend défendable
+  telle quelle : aucun cookie, aucun profil de personne, aucune coordonnée ni équipement
+  consulté envoyés, hébergement européen, `Do-Not-Track` respecté, et un refus dans la
+  fiche « À propos ». Ce n'est pas une exemption formelle au sens de la CNIL — PostHog
+  n'est pas dans sa liste de solutions exemptées. Si le sujet revient, c'est un bandeau
+  qu'il faudra poser, pas un réglage à changer : `opt_out_capturing_by_default` existe
+  pour ça, et `cookieless_mode: 'on_reject'` avec lui.
 - Filtre dur sur les propriétaires publics : les salles privées commerciales se déclarent
   aussi « en accès libre » (un Fitness Park remontait dans les premiers essais).
 - Catégories nature (randonnée, escalade, baignade) décochées par défaut : 25 000 boucles
